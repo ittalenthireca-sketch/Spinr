@@ -1,0 +1,19 @@
+# Default: all changes require review
+* @srikumarimuddana-lab
+
+# Backend security-sensitive files
+/backend/core/ @srikumarimuddana-lab
+/backend/routes/payments.py @srikumarimuddana-lab
+/backend/routes/auth.py @srikumarimuddana-lab
+/backend/routes/admin.py @srikumarimuddana-lab
+/backend/dependencies.py @srikumarimuddana-lab
+
+# Infrastructure and CI
+/.github/workflows/ @srikumarimuddana-lab
+/backend/Dockerfile @srikumarimuddana-lab
+/fly.toml @srikumarimuddana-lab
+/render.yaml @srikumarimuddana-lab
+
+# Shared config
+/shared/config/ @srikumarimuddana-lab
+/.claude/ @srikumarimuddana-lab
