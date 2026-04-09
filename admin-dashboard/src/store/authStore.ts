@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
 interface User {
     id: string;
     phone?: string;
@@ -17,11 +19,14 @@ interface AuthState {
     token: string | null;
     isAuthenticated: boolean;
     isLoading: boolean;
+    lastActivity: number;
     setUser: (user: User | null) => void;
     setToken: (token: string | null) => void;
     setLoading: (loading: boolean) => void;
     logout: () => void;
     checkAuth: () => Promise<void>;
+    updateActivity: () => void;
+    checkSessionTimeout: () => void;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -33,6 +38,7 @@ export const useAuthStore = create<AuthState>()(
             token: null,
             isAuthenticated: false,
             isLoading: true,
+            lastActivity: Date.now(),
 
             setUser: (user) => {
                 set({
@@ -57,6 +63,15 @@ export const useAuthStore = create<AuthState>()(
                     isAuthenticated: false,
                     isLoading: false
                 });
+            },
+
+            updateActivity: () => set({ lastActivity: Date.now() }),
+
+            checkSessionTimeout: () => {
+                const { lastActivity, logout } = get();
+                if (Date.now() - lastActivity > SESSION_TIMEOUT_MS) {
+                    logout();
+                }
             },
 
             checkAuth: async () => {
@@ -111,3 +126,10 @@ export const useAuthStore = create<AuthState>()(
         }
     )
 );
+
+export const startSessionTimer = (): (() => void) => {
+    const interval = setInterval(() => {
+        useAuthStore.getState().checkSessionTimeout();
+    }, 60_000);
+    return () => clearInterval(interval);
+};

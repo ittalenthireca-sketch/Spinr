@@ -137,6 +137,15 @@ export default function DriversPage() {
         setVerifying(false);
     };
 
+    const isValidHttpUrl = (url: string): boolean => {
+        try {
+            const u = new URL(url);
+            return u.protocol === 'http:' || u.protocol === 'https:';
+        } catch {
+            return false;
+        }
+    };
+
     const fmtDate = (d: string) => {
         if (!d) return "—";
         try { return new Date(d).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" }); } catch { return d; }
@@ -354,11 +363,11 @@ export default function DriversPage() {
                                                                     Expires: {new Date(exp).toLocaleDateString("en-CA")}
                                                                 </p>
                                                             )}
-                                                            {d.document_url && (
+                                                            {d.document_url && isValidHttpUrl(d.document_url) && (
                                                                 <a
                                                                     href={d.document_url}
                                                                     target="_blank"
-                                                                    rel="noreferrer"
+                                                                    rel="noopener noreferrer"
                                                                     className="text-[11px] text-primary underline"
                                                                 >
                                                                     View file

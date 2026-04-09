@@ -1,36 +1,36 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { AlertTriangle } from "lucide-react";
+import { useEffect } from 'react';
+import { Button } from '@/components/ui/button';
 
 export default function Error({
-    error,
-    reset,
+  error,
+  reset,
 }: {
-    error: Error & { digest?: string };
-    reset: () => void;
+  error: Error & { digest?: string };
+  reset: () => void;
 }) {
-    return (
-        <div className="min-h-screen flex items-center justify-center bg-background p-4">
-            <Card className="max-w-md w-full">
-                <CardContent className="pt-8 pb-8 text-center space-y-4">
-                    <AlertTriangle className="h-16 w-16 text-red-500 mx-auto" />
-                    <div>
-                        <h1 className="text-2xl font-bold tracking-tight">Something Went Wrong</h1>
-                        <p className="text-muted-foreground mt-2">
-                            {error.message || "An unexpected error occurred. Please try again."}
-                        </p>
-                    </div>
-                    <div className="flex gap-3 justify-center">
-                        <Button onClick={reset}>Try Again</Button>
-                        <Button variant="outline" asChild>
-                            <Link href="/dashboard">Go to Dashboard</Link>
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
-        </div>
-    );
+  useEffect(() => {
+    console.error('Application error:', error);
+  }, [error]);
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-6 p-8 text-center">
+      <div>
+        <h2 className="text-2xl font-bold text-destructive mb-2">Something went wrong</h2>
+        <p className="text-muted-foreground mb-4">
+          An unexpected error occurred. Our team has been notified.
+        </p>
+        {error.digest && (
+          <p className="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
+            Error ID: {error.digest}
+          </p>
+        )}
+      </div>
+      <div className="flex gap-3">
+        <Button onClick={reset} variant="outline">Try again</Button>
+        <Button onClick={() => window.location.href = '/dashboard'}>Go to Dashboard</Button>
+      </div>
+    </div>
+  );
 }

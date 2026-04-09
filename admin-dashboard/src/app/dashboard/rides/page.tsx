@@ -28,6 +28,8 @@ export default function RidesPage() {
     const [statusFilter, setStatusFilter] = useState("all");
     const [areaFilter, setAreaFilter] = useState("all");
     const [selected, setSelected] = useState<any>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
+    const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
     useEffect(() => {
         Promise.all([getRides(), getServiceAreas().catch(() => [])])
@@ -75,11 +77,24 @@ export default function RidesPage() {
                 method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
                 body: JSON.stringify({ tip_amount: 0 }),
             });
-            alert("Invoice/receipt sent to rider's email");
-        } catch { alert("Failed to send invoice"); }
+            setActionSuccess("Invoice/receipt sent to rider's email");
+        } catch { setActionError("Failed to send invoice"); }
     };
 
     return (
+        <div className="flex flex-col gap-4">
+            {actionError && (
+                <div role="alert" className="mb-4 p-3 bg-destructive/10 text-destructive rounded-md flex justify-between items-center">
+                    <span>{actionError}</span>
+                    <button onClick={() => setActionError(null)} aria-label="Dismiss error" className="ml-2 text-destructive hover:opacity-70">✕</button>
+                </div>
+            )}
+            {actionSuccess && (
+                <div role="status" className="mb-4 p-3 bg-green-50 text-green-800 rounded-md flex justify-between items-center">
+                    <span>{actionSuccess}</span>
+                    <button onClick={() => setActionSuccess(null)} aria-label="Dismiss message" className="ml-2 hover:opacity-70">✕</button>
+                </div>
+            )}
         <div className="flex gap-4 h-[calc(100vh-100px)]">
             {/* Left */}
             <div className={`flex flex-col ${selected ? "w-1/2 lg:w-3/5" : "w-full"} transition-all`}>
@@ -281,6 +296,7 @@ export default function RidesPage() {
                     </div>
                 </div>
             )}
+        </div>
         </div>
     );
 }

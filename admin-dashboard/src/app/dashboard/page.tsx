@@ -83,11 +83,11 @@ export default function DashboardPage() {
 
             {/* Top Stats Row */}
             {stats && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    <StatCard icon={Car} label="Total Rides" value={stats.total_rides} color="blue" />
-                    <StatCard icon={Activity} label="Active Now" value={stats.active_rides} color="emerald" pulse />
-                    <StatCard icon={Users} label="Total Users" value={stats.total_users} color="violet" />
-                    <StatCard icon={UserCheck} label="Online Drivers" value={stats.online_drivers} subtitle={`of ${stats.total_drivers} total`} color="amber" />
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" aria-live="polite" aria-label="Live dashboard statistics">
+                    <StatCard icon={Car} label="Total Rides" value={stats.total_rides} color="blue" aria-label={`Total rides: ${stats.total_rides ?? 0}`} />
+                    <StatCard icon={Activity} label="Active Now" value={stats.active_rides} color="emerald" pulse aria-label={`Active rides: ${stats.active_rides ?? 0}`} />
+                    <StatCard icon={Users} label="Total Users" value={stats.total_users} color="violet" aria-label={`Total users: ${stats.total_users ?? 0}`} />
+                    <StatCard icon={UserCheck} label="Online Drivers" value={stats.online_drivers} subtitle={`of ${stats.total_drivers} total`} color="amber" aria-label={`Online drivers: ${stats.online_drivers ?? 0} of ${stats.total_drivers ?? 0}`} />
                 </div>
             )}
 
@@ -180,8 +180,8 @@ export default function DashboardPage() {
 
 // ─── Components ───
 
-function StatCard({ icon: Icon, label, value, color, subtitle, pulse }: {
-    icon: any; label: string; value: number; color: string; subtitle?: string; pulse?: boolean;
+function StatCard({ icon: Icon, label, value, color, subtitle, pulse, 'aria-label': ariaLabel }: {
+    icon: any; label: string; value: number; color: string; subtitle?: string; pulse?: boolean; 'aria-label'?: string;
 }) {
     return (
         <div className="bg-card border rounded-2xl p-4 hover:shadow-md transition-shadow">
@@ -192,7 +192,7 @@ function StatCard({ icon: Icon, label, value, color, subtitle, pulse }: {
                 </div>
             </div>
             <div className="flex items-end gap-2">
-                <p className="text-2xl font-bold tracking-tight">{(value ?? 0).toLocaleString()}</p>
+                <p className="text-2xl font-bold tracking-tight" aria-label={ariaLabel}>{(value ?? 0).toLocaleString()}</p>
                 {pulse && value > 0 && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mb-2" />}
             </div>
             {subtitle && <p className="text-[11px] text-muted-foreground mt-1">{subtitle}</p>}
