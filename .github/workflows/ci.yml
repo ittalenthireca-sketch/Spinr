@@ -213,7 +213,9 @@ jobs:
   deploy-backend:
     runs-on: ubuntu-latest
     needs: [secrets-scan, backend-test]
-    if: github.ref == 'refs/heads/main'
+    # AUDIT REPO: Deploys disabled — this repo is for audit/hardening only.
+    # Deployments run exclusively from srikumarimuddana-lab/spinr.
+    if: false
     
     steps:
       - uses: actions/checkout@v4
@@ -239,7 +241,8 @@ jobs:
   deploy-frontend:
     runs-on: ubuntu-latest
     needs: [secrets-scan, frontend-test]
-    if: github.ref == 'refs/heads/main'
+    # AUDIT REPO: Deploys disabled — see deploy-backend comment above.
+    if: false
     
     steps:
       - uses: actions/checkout@v4
@@ -271,7 +274,8 @@ jobs:
   deploy-admin:
     runs-on: ubuntu-latest
     needs: [secrets-scan, admin-test]
-    if: github.ref == 'refs/heads/main'
+    # AUDIT REPO: Deploys disabled — see deploy-backend comment above.
+    if: false
     
     steps:
       - uses: actions/checkout@v4
@@ -301,7 +305,8 @@ jobs:
   mobile-build:
     runs-on: ubuntu-latest
     needs: [frontend-test]
-    if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[build]')
+    # AUDIT REPO: Mobile builds disabled — see deploy-backend comment above.
+    if: false
     
     steps:
       - uses: actions/checkout@v4
@@ -351,7 +356,7 @@ jobs:
   # Notify on failure
   notify-failure:
     runs-on: ubuntu-latest
-    needs: [backend-test, frontend-test, deploy-backend, deploy-frontend]
+    needs: [backend-test, frontend-test]
     if: failure()
     
     steps:

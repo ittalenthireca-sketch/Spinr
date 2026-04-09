@@ -82,3 +82,12 @@ logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Android bug reports / crash dumps (debug artifacts, not source)
+rider-app/bugreport-*.zip
+driver-app/bugreport-*.zip
+*.bugreport.zip
+
+# Claude Code agent artifacts (worktrees, temp files)
+.claude/worktrees/
+.claude/scheduled-tasks/
