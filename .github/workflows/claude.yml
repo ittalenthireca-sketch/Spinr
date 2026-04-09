@@ -1,0 +1,62 @@
+name: spinr — Claude AI Assistant
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+  issues:
+    types: [assigned]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+
+  claude-assistant:
+    name: Claude Code Assistant
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'issues' && github.event.action == 'assigned')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 20
+            --append-system-prompt "You are working on spinr, a Canadian ride-share platform. Backend is Python. Mobile apps use Expo. Never modify ci.yml. Never commit to main or develop. Never use float for money. Never log PII. Flag auth/payment changes for human review. Follow CLAUDE.md conventions."
+
+  security-review:
+    name: AI Security Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this spinr pull request for security issues. Check for:
+            CRITICAL: hardcoded secrets, Supabase keys, Stripe live keys, PII in logs,
+            SQL injection, Supabase service role key in frontend/mobile code,
+            insurance period misclassification, trip state machine violations.
+            IMPORTANT: float arithmetic for money, missing input validation,
+            new unreviewed dependencies, payment code without test mode guard.
+            Post a comment: Status (PASSED/REVIEW REQUIRED/BLOCKED),
+            Critical Issues, Important Flags, Recommendation.
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 5

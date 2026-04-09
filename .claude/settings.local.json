@@ -3,7 +3,11 @@
     "allow": [
       "Bash(npx expo:*)",
       "Bash(npx expo-doctor:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(sed 's/\\\\\\\\n/\\\\n/g')",
+      "Read(//tmp/**)",
+      "Bash(python3 /tmp/extract.py)",
+      "Bash(wc -l .claude/commands/*.md)"
     ]
   }
 }
