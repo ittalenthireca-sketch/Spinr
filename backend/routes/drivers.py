@@ -19,6 +19,11 @@ import os
 import stripe
 from pydantic import BaseModel
 
+try:
+    from ..utils.audit_logger import log_security_event
+except ImportError:
+    from utils.audit_logger import log_security_event
+
 logger = logging.getLogger(__name__)
 
 class RideOTPRequest(BaseModel):
@@ -886,58 +891,68 @@ async def accept_ride(ride_id: str, current_user: dict = Depends(get_current_use
         f"pre_status={ride.get('status')} pre_driver_id={ride.get('driver_id')}"
     )
 
-    # Verify this driver was assigned
-    if ride.get('driver_id') != driver['id']:
-        # Check if it's open (searching) and we can claim it?
-        # For now assume mostly assigned flow.
-        # If status is searching, we might allow claim if using broadcast.
-        if ride['status'] == 'searching':
-             # Allow claim
-             pass
-        else:
-             diag_logger.info(
-                 f"[ACCEPT] ride_id={ride_id} not assigned to this driver: "
-                 f"ride.driver_id={ride.get('driver_id')} != this_driver.id={driver['id']} "
-                 f"and status={ride.get('status')} != 'searching'"
-             )
-             raise HTTPException(status_code=400, detail='Ride not assigned to you')
+    # Verify this driver is eligible to accept.
+    # - Broadcast rides (status='searching', no driver_id): any driver can claim.
+    # - All other rides: must be the assigned driver.
+    if ride.get('driver_id') != driver['id'] and ride.get('status') != 'searching':
+        diag_logger.info(
+            f"[ACCEPT] rejected: ride_id={ride_id} "
+            f"ride.driver_id={ride.get('driver_id')} != this_driver.id={driver['id']} "
+            f"and status={ride.get('status')} != 'searching'"
+        )
+        raise HTTPException(status_code=400, detail='Ride not assigned to you')
 
-    await db.rides.update_one(
-        {'id': ride_id},
+    # ── Optimistic locking: atomic conditional update ────────────────────────
+    # The filter includes 'status': 'searching' so the UPDATE only succeeds if
+    # the ride is STILL in the searching state at the moment the DB write lands.
+    # If two drivers call this endpoint concurrently:
+    #   - Driver A's write wins → status flips to 'driver_accepted'
+    #   - Driver B's write arrives 20ms later → filter no longer matches → 0 rows
+    #     updated → update_one returns None → Driver B gets a 409
+    # This is the same compare-and-swap (optimistic locking) pattern used by
+    # Uber, Lyft, and all real-time dispatch platforms to prevent phantom accepts.
+    result = await db.rides.update_one(
+        {'id': ride_id, 'status': 'searching'},
         {'$set': {
             'status': 'driver_accepted',
-            'driver_id': driver['id'], # ensure set
+            'driver_id': driver['id'],
             'driver_accepted_at': datetime.utcnow(),
-            'updated_at': datetime.utcnow()
+            'updated_at': datetime.utcnow(),
         }}
     )
 
-    # Verify the update landed. The RideCollection.update_one wrapper routes
-    # to db_supabase.update_ride which returns None on zero-rows-affected
-    # silently, and this handler would otherwise return {success: true} while
-    # the ride is still in its previous state — causing /drivers/rides/active
-    # to still see 'driver_assigned' (or similar) and the driver-app to render
-    # the wrong state, OR worse if some column silently blocks the write.
-    try:
-        verify_ride = await db.rides.find_one({'id': ride_id})
-    except Exception as e:
-        verify_ride = None
-        diag_logger.info(f"[ACCEPT] verify re-read failed: {e}")
+    if not result:
+        # 0 rows updated — the ride was already accepted by another driver (or
+        # transitioned out of 'searching' by another process).
+        diag_logger.info(
+            f"[ACCEPT] RACE LOST: ride_id={ride_id} driver_id={driver['id']} "
+            f"— status was no longer 'searching' at write time"
+        )
+        # Notify this driver via WebSocket so the UI can show an error banner
+        # instead of leaving them silently waiting on a ride they didn't get.
+        try:
+            await manager.send_personal_message(
+                {
+                    'type': 'ride_taken',
+                    'ride_id': ride_id,
+                    'message': 'Another driver accepted this ride',
+                },
+                f"driver_{current_user['id']}"
+            )
+        except Exception:
+            pass
+        log_security_event(
+            "RIDE_ACCEPT_RACE_LOST",
+            driver_id=driver['id'],
+            ride_id=ride_id,
+        )
+        raise HTTPException(status_code=409, detail='Ride has already been accepted by another driver')
 
     diag_logger.info(
-        f"[ACCEPT] post-update ride_id={ride_id} "
-        f"post_status={verify_ride.get('status') if verify_ride else 'ROW_GONE'} "
-        f"post_driver_id={verify_ride.get('driver_id') if verify_ride else 'ROW_GONE'} "
-        f"post_driver_accepted_at={verify_ride.get('driver_accepted_at') if verify_ride else 'ROW_GONE'}"
+        f"[ACCEPT] SUCCESS: ride_id={ride_id} driver_id={driver['id']} "
+        f"status=driver_accepted"
     )
 
-    if not verify_ride or verify_ride.get('status') != 'driver_accepted':
-        diag_logger.info(
-            f"[ACCEPT] SILENT NO-OP: ride_id={ride_id} did not flip to "
-            f"'driver_accepted'. This will cause the driver-app to render a "
-            f"blank state because /drivers/rides/active query will mismatch."
-        )
-    
     # Notify rider
     if ride.get('rider_id'):
         await manager.send_personal_message(
@@ -949,7 +964,7 @@ async def accept_ride(ride_id: str, current_user: dict = Depends(get_current_use
             "Driver Assigned! 🚗",
             "Your driver has accepted the ride and is on the way."
         )
-        
+
     return {'success': True}
 
 @api_router.post("/rides/{ride_id}/decline")
