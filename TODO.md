@@ -86,3 +86,26 @@
 - All critical and high priority items should be completed before production launch
 - Medium priority items improve user experience significantly
 - Low priority items are nice-to-have enhancements
+
+## Sprint 2 — Security (Added 2026-04-09)
+
+- [ ] **Firebase key rotation** — `google-services.json` and `GoogleService-Info.plist` committed in git history
+  - Files: `driver-app/google-services.json`, `driver-app/GoogleService-Info.plist`, `rider-app/google-services.json`, `rider-app/GoogleService-Info.plist`
+  - Action: Owner rotates Firebase project keys in Firebase Console (Option C), new files replace committed ones
+  - Priority: P1 — credentials exposed in private repo history
+
+- [ ] **CORS origin lockdown** — `server.py` allows `*` in production
+  - File: `backend/server.py`
+  - Action: Restrict to `https://spinr.app`, `https://admin.spinr.app` in production env
+
+- [ ] **server.py modularization** — 3,800 lines, unmaintainable
+  - File: `backend/server.py`
+  - Action: Split into 15 route modules under `backend/routes/`
+
+- [ ] **OTP rate limiting** — no per-phone or per-IP limit on `/api/auth/send-otp`
+  - File: `backend/server.py`
+  - Action: 5 attempts per phone per 15 min, exponential backoff
+
+- [ ] **Account lockout** — no lockout after repeated failed OTP verifications
+  - File: `backend/server.py`
+  - Action: Lock account after 10 failures, require admin unlock or 24hr cooldown
