@@ -2,21 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Animated } from 'react-native';
 import * as Location from 'expo-location';
 import { Platform, Alert, Vibration, Linking, AppState } from 'react-native';
-import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { router } from 'expo-router';
-
-// expo-notifications throws at import time inside Expo Go since SDK 53 because
-// push-token APIs were removed from Expo Go. Lazy-load it only in real builds
-// (standalone / dev-client) so the dashboard still mounts in Expo Go.
-const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
-let Notifications: any = null;
-if (!isExpoGo) {
-  try {
-    Notifications = require('expo-notifications');
-  } catch (e) {
-    console.log('expo-notifications unavailable:', e);
-  }
-}
 import { useAuthStore } from '@shared/store/authStore';
 import { useDriverStore } from '../store/driverStore';
 import api from '@shared/api/client';
@@ -441,68 +427,13 @@ export const useDriverDashboard = (): UseDriverDashboardReturn => {
     }
   }, [isOnline]);
 
-  // ─── Push Notifications Setup ────────────────────────────────────
-  useEffect(() => {
-    if (!isOnline) return;
-    // Skip entirely in Expo Go — push APIs were removed from Expo Go in SDK 53.
-    if (!Notifications) {
-      console.log('[Push] Skipping — Notifications not available (Expo Go)');
-      return;
-    }
-
-    const setupNotifications = async () => {
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-
-      if (finalStatus !== 'granted') {
-        console.log('Push notification permission not granted');
-        return;
-      }
-
-      const token = await Notifications.getExpoPushTokenAsync();
-      console.log('Push token:', token.data);
-
-      try {
-        await api.post('/drivers/push-token', {
-          push_token: token.data,
-          platform: Platform.OS,
-        });
-      } catch (err) {
-        console.log('Failed to register push token:', err);
-      }
-    };
-
-    setupNotifications();
-
-    const notificationListener = Notifications.addNotificationReceivedListener((notification: any) => {
-      const data = notification.request.content.data;
-      console.log('Push notification received:', data);
-
-      if (data?.type === 'new_ride_offer') {
-        Vibration.vibrate([0, 500, 200, 500]);
-        fetchActiveRide();
-      }
-    });
-
-    const responseListener = Notifications.addNotificationResponseReceivedListener((response: any) => {
-      const data = response.notification.request.content.data;
-      console.log('Notification tapped:', data);
-
-      if (data?.ride_id) {
-        fetchActiveRide();
-      }
-    });
-
-    return () => {
-      notificationListener.remove();
-      responseListener.remove();
-    };
-  }, [isOnline]);
+  // Push notifications for driver are handled via FCM in _layout.tsx:
+  // - setBackgroundMessageHandler: covers data-only pushes when app is backgrounded/killed
+  // - getInitialNotification: routes driver to /driver on killed-state notification tap
+  // - onNotificationOpenedApp: routes driver to /driver on background-state tap
+  // - onForegroundMessage: logs foreground notifications
+  // FCM token is registered in _layout.tsx via requestPushPermissionAndGetToken()
+  // → POST /notifications/register-token → push_tokens table (authoritative token store).
 
   return {
     // State

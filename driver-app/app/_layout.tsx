@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet, Text, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -10,7 +10,22 @@ import { useLocationStore } from '@shared/store/locationStore';
 import SpinrConfig from '@shared/config/spinr.config';
 import { ErrorBoundary } from '@shared/components/ErrorBoundary';
 import { OfflineBanner } from '@shared/components/OfflineBanner';
-import { initFirebaseServices, requestPushPermissionAndGetToken, onForegroundMessage } from '@shared/services/firebase';
+import {
+  initFirebaseServices,
+  requestPushPermissionAndGetToken,
+  onForegroundMessage,
+  setBackgroundMessageHandler,
+  getInitialNotification,
+  onNotificationOpenedApp,
+} from '@shared/services/firebase';
+
+// ── FCM background handler — must be at module scope, outside any component ──
+// Called by the OS when a data-only push arrives while the app is backgrounded
+// or in a killed state (before any React component mounts).
+setBackgroundMessageHandler(async (remoteMessage: any) => {
+  // Keep this handler minimal — no UI updates are possible here.
+  console.log('[FCM] Background message received:', remoteMessage.data?.type);
+});
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -25,6 +40,9 @@ export default function RootLayout() {
   const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
+    // Track the onNotificationOpenedApp unsubscribe so we can clean up on unmount.
+    let unsubBackground: (() => void) | undefined;
+
     const init = async () => {
       try {
         // Session flow (driver app):
@@ -55,6 +73,25 @@ export default function RootLayout() {
         onForegroundMessage((msg: any) => {
           console.log('[Push] Driver foreground:', msg.notification?.title);
         });
+
+        // ── Killed state: app was fully closed, driver tapped notification ──
+        // getInitialNotification() returns the message that launched the app,
+        // or null if the app was opened normally.
+        const initialNotification = await getInitialNotification();
+        if (initialNotification?.data?.type === 'new_ride_offer') {
+          console.log('[FCM] App opened from killed state via ride notification');
+          router.push('/driver');
+        }
+
+        // ── Background state: app was backgrounded, driver tapped notification ──
+        // onNotificationOpenedApp fires when a tapped notification brings the app
+        // from background to foreground. Returns an unsubscribe function.
+        unsubBackground = onNotificationOpenedApp((remoteMessage: any) => {
+          if (remoteMessage?.data?.type === 'new_ride_offer') {
+            console.log('[FCM] App foregrounded via ride notification tap');
+            router.push('/driver');
+          }
+        });
       } catch (err: any) {
         console.error('Initialization error:', err);
       }
@@ -68,6 +105,10 @@ export default function RootLayout() {
       script.async = true;
       document.body.appendChild(script);
     }
+
+    return () => {
+      if (unsubBackground) unsubBackground();
+    };
   }, []);
 
   if (!fontsLoaded || fontError || !isAuthInitialized || !isLocationInitialized) {

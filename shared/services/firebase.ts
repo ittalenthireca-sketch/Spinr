@@ -108,6 +108,32 @@ export function setBackgroundMessageHandler(handler: (message: any) => void) {
 
 
 /**
+ * Get the notification that caused the app to open from a killed state.
+ * Returns null if the app was not opened by tapping a notification.
+ * Must be called inside a component (async, not module scope).
+ */
+export async function getInitialNotification(): Promise<any> {
+  if (!messaging) return null;
+  try {
+    return await messaging().getInitialNotification();
+  } catch (e) {
+    console.log('[Firebase] getInitialNotification error:', e);
+    return null;
+  }
+}
+
+
+/**
+ * Register a handler for notifications tapped while the app was backgrounded.
+ * Returns an unsubscribe function — call it on component unmount.
+ */
+export function onNotificationOpenedApp(handler: (message: any) => void): () => void {
+  if (!messaging) return () => {};
+  return messaging().onNotificationOpenedApp(handler);
+}
+
+
+/**
  * Log a custom event to Crashlytics.
  */
 export function logCrashlyticsEvent(message: string) {
