@@ -29,6 +29,11 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 import uuid
 
+try:
+    from ..utils.audit_logger import log_security_event, SecurityEvent
+except ImportError:
+    from utils.audit_logger import log_security_event, SecurityEvent
+
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
 api_router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -78,17 +83,20 @@ async def send_otp(request: Request, body: SendOTPRequest):
         twilio_from=settings.get('twilio_from_number', '') if settings else ''
     )
     if not sms_result.get('success'):
-        logger.error(f'Failed to send OTP SMS to {phone}: {sms_result.get("error")}')
+        log_security_event(SecurityEvent.OTP_SEND_FAILED, phone_hint=phone[-4:])
+        logger.error(f'Failed to send OTP SMS to ...{phone[-4:]}: {sms_result.get("error")}')
         raise HTTPException(status_code=500, detail='Failed to send verification code')
-    
+
+    log_security_event(SecurityEvent.OTP_SENT, phone_hint=phone[-4:])
+
     response = {
         'success': True,
         'message': f'OTP sent to {phone}'
     }
-    # Include dev_otp when Twilio is NOT configured (always shows 1234 in dev)
-    if not twilio_configured:
+    # Include dev_otp in response only in non-production environments
+    if not twilio_configured and not _is_production:
         response['dev_otp'] = otp_code
-    
+
     return response
 
 @api_router.post("/verify-otp", response_model=AuthResponse)
@@ -113,6 +121,7 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
         otp_record = {'id': 'dev', 'phone': phone, 'code': code, 'expires_at': datetime.utcnow() + timedelta(minutes=5)}
     
     if not otp_record:
+        log_security_event(SecurityEvent.OTP_INVALID, phone_hint=phone[-4:])
         raise HTTPException(status_code=400, detail='Invalid verification code')
     
     # Parse expires_at to datetime if it's a string (from Supabase)
@@ -139,6 +148,7 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
             await db.otp_records.delete_one({'id': otp_record['id']})
         except Exception:
             pass
+        log_security_event(SecurityEvent.OTP_EXPIRED, phone_hint=phone[-4:])
         raise HTTPException(status_code=400, detail='OTP has expired')
     
     try:
@@ -157,24 +167,26 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
             logger.warning(f'Could not query user from DB: {e}')
         
         if existing_user:
-            logger.info("User exists, creating token")
             session_id = str(uuid.uuid4())
             try:
                 await db.users.update_one({'id': existing_user['id']}, {'$set': {'current_session_id': session_id}})
                 existing_user['current_session_id'] = session_id
             except Exception as e:
                 logger.warning(f'Could not update current_session_id in DB: {e}')
-                
+
             token = create_jwt_token(existing_user['id'], phone, session_id=session_id)
-            logger.info("Token created. Validating UserProfile...")
             try:
                 user_obj = UserProfile(**existing_user)
-                logger.info(f"UserProfile valid for user: {existing_user.get('id')}")
             except Exception as e:
                 logger.error(f"UserProfile validation failed: {e}")
-                # Fallback constructs if validation fails to inspect why
                 raise e
-            
+
+            log_security_event(
+                SecurityEvent.OTP_VERIFIED,
+                phone_hint=phone[-4:],
+                user_id=existing_user.get('id'),
+                is_new_user=False,
+            )
             return AuthResponse(token=token, user=user_obj, is_new_user=False)
         else:
             logger.info("Creating new user")
@@ -193,6 +205,13 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
             except Exception as e:
                 logger.warning(f'Could not create user in DB: {e}')
             token = create_jwt_token(user_id, phone, session_id=session_id)
+            log_security_event(
+                SecurityEvent.OTP_VERIFIED,
+                phone_hint=phone[-4:],
+                user_id=user_id,
+                is_new_user=True,
+            )
+            log_security_event(SecurityEvent.USER_CREATED, user_id=user_id)
             return AuthResponse(token=token, user=UserProfile(**new_user), is_new_user=True)
     except Exception as e:
         logger.error(f"CRITICAL ERROR IN VERIFY_OTP: {e}")

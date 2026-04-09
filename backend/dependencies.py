@@ -9,6 +9,11 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from firebase_admin import auth as firebase_auth
 
 try:
+    from .utils.audit_logger import log_security_event, SecurityEvent
+except ImportError:
+    from utils.audit_logger import log_security_event, SecurityEvent
+
+try:
     from .db import db
 except ImportError:
     from db import db
@@ -57,6 +62,7 @@ def verify_jwt_token(token: str) -> dict:
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """Resolve the current user using Firebase ID token (preferred) or fallback to legacy JWT."""
     if not credentials:
+        log_security_event(SecurityEvent.AUTH_NO_TOKEN)
         raise HTTPException(status_code=401, detail='No authorization token provided')
     token = credentials.credentials
 
@@ -101,8 +107,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         payload = verify_jwt_token(token)
         # logger.info(f"JWT Valid. Payload: {payload}")
     except Exception as e:
-        logger.error(f"JWT Verification Failed: {e} | Token prefix: {token[:20] if token else 'None'}...")
-        logger.error(f"DEBUG: Active JWT_SECRET being used for verification: '{JWT_SECRET}' (length: {len(JWT_SECRET) if JWT_SECRET else 0})")
+        log_security_event(SecurityEvent.AUTH_FAILED, reason="invalid_jwt")
+        logger.warning("JWT verification failed — check JWT_SECRET env var is consistent across deployments")
         raise HTTPException(status_code=401, detail=f'Invalid token: {str(e)}')
 
     user = None
@@ -116,6 +122,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         token_session = payload.get('session_id')
         db_session = user.get('current_session_id')
         if db_session and token_session != db_session:
+            log_security_event(
+                SecurityEvent.AUTH_SESSION_MISMATCH,
+                user_id=user.get('id'),
+            )
             raise HTTPException(status_code=401, detail='Session expired. Logged in from another device.')
         # If the JWT carries a role claim (e.g. admin), honour it over the DB value
         jwt_role = payload.get('role')
@@ -150,6 +160,11 @@ async def get_admin_user(current_user: dict = Depends(get_current_user)) -> dict
     """Require the caller to be an authenticated admin."""
     role = current_user.get('role', '')
     if role not in ('admin', 'super_admin', 'operations', 'support', 'finance', 'custom'):
+        log_security_event(
+            SecurityEvent.ADMIN_ACCESS_DENIED,
+            user_id=current_user.get('id'),
+            role=role,
+        )
         raise HTTPException(status_code=403, detail='Admin access required')
     return current_user
 
