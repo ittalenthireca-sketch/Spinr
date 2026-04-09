@@ -10,7 +10,10 @@ import {
   ActivityIndicator,
   RefreshControl,
   FlatList,
+  Alert,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -78,6 +81,58 @@ export default function EarningsScreen() {
     setRefreshing(false);
   };
 
+  // ── CSV Export ───────────────────────────────────────────────────────────
+  const exportEarnings = useCallback(async () => {
+    if (tripEarnings.length === 0) {
+      Alert.alert('Nothing to Export', 'Complete some trips first to export your earnings.');
+      return;
+    }
+    try {
+      // Build CSV rows
+      const header = 'Date,Pickup,Dropoff,Distance (km),Duration (min),Fare ($),Tip ($),Total ($)';
+      const rows = tripEarnings.map(trip => {
+        const date = trip.completed_at
+          ? new Date(trip.completed_at).toLocaleDateString('en-CA') // YYYY-MM-DD
+          : '';
+        const pickup = `"${(trip.pickup_address || '').replace(/"/g, '""')}"`;
+        const dropoff = `"${(trip.dropoff_address || '').replace(/"/g, '""')}"`;
+        const km = trip.distance_km.toFixed(1);
+        const mins = String(trip.duration_minutes);
+        const fare = (trip.driver_earnings - (trip.tip_amount || 0)).toFixed(2);
+        const tip = (trip.tip_amount || 0).toFixed(2);
+        const total = trip.driver_earnings.toFixed(2);
+        return [date, pickup, dropoff, km, mins, fare, tip, total].join(',');
+      });
+      const csvContent = [header, ...rows].join('\n');
+
+      // Write to a temporary file
+      const periodLabel = period === 'today' ? 'today'
+        : period === 'week' ? 'this-week'
+        : period === 'month' ? 'this-month'
+        : 'all-time';
+      const fileName = `spinr-earnings-${periodLabel}.csv`;
+      const filePath = `${FileSystem.cacheDirectory}${fileName}`;
+      await FileSystem.writeAsStringAsync(filePath, csvContent, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      // Share the file
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(filePath, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Export Earnings',
+          UTI: 'public.comma-separated-values-text',
+        });
+      } else {
+        Alert.alert('Sharing Not Available', 'This device does not support file sharing.');
+      }
+    } catch (err) {
+      console.error('[Export] Failed to export earnings:', err);
+      Alert.alert('Export Failed', 'Could not export earnings. Please try again.');
+    }
+  }, [tripEarnings, period]);
+
   const maxDailyEarning = Math.max(...(dailyEarnings.map((d) => d.earnings) || [1]), 1);
 
   const renderFilterTabs = () => (
@@ -115,13 +170,23 @@ export default function EarningsScreen() {
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <Text style={styles.headerHeroTitle}>Earnings</Text>
-          <TouchableOpacity
-            style={styles.payoutBtn}
-            onPress={() => router.push('/driver/payout' as any)}
-          >
-            <Ionicons name="wallet-outline" size={16} color={COLORS.accentDark} />
-            <Text style={styles.payoutBtnText}>Payout</Text>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.exportBtn}
+              onPress={exportEarnings}
+              disabled={loading || tripEarnings.length === 0}
+            >
+              <Ionicons name="download-outline" size={16} color="#fff" />
+              <Text style={styles.exportBtnText}>CSV</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.payoutBtn}
+              onPress={() => router.push('/driver/payout' as any)}
+            >
+              <Ionicons name="wallet-outline" size={16} color={COLORS.accentDark} />
+              <Text style={styles.payoutBtnText}>Payout</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.totalBox}>
@@ -365,6 +430,28 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  exportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 20,
+    gap: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  exportBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   payoutBtn: {
     flexDirection: 'row',

@@ -39,6 +39,12 @@ interface Ride {
   status?: string;
 }
 
+interface NavDestination {
+  lat: number;
+  lng: number;
+  label: string;
+}
+
 interface ActiveRidePanelProps {
   rideState: 'navigating_to_pickup' | 'arrived_at_pickup' | 'trip_in_progress';
   ride: Ride | null;
@@ -48,6 +54,8 @@ interface ActiveRidePanelProps {
   setOtpInput: (value: string) => void;
   onVerifyOTP: (otp: string) => void;
   onNavigate: (lat: number, lng: number, label: string) => void;
+  /** Called when driver starts/stops in-app navigation. Pass null to stop. */
+  onNavigatingChange?: (destination: NavDestination | null) => void;
   onArriveAtPickup: () => void;
   onStartRide: () => void;
   onCompleteRide: () => void;
@@ -65,6 +73,7 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
   setOtpInput,
   onVerifyOTP,
   onNavigate,
+  onNavigatingChange,
   onArriveAtPickup,
   onStartRide,
   onCompleteRide,
@@ -80,6 +89,8 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
     title: '', message: '', variant: 'info' as 'info' | 'warning' | 'danger' | 'success',
     buttons: [] as Array<{ text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void }>,
   });
+  // ── In-app navigation mode ─────────────────────────────────────────────────
+  const [isNavigating, setIsNavigating] = useState(false);
 
   useEffect(() => {
     if (rideState === 'arrived_at_pickup') {
@@ -93,6 +104,12 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
       waitTimerRef.current = null;
     }
   }, [rideState]);
+
+  // Reset navigation mode whenever the ride phase changes (e.g. pickup → dropoff).
+  useEffect(() => {
+    setIsNavigating(false);
+    onNavigatingChange?.(null);
+  }, [rideState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ride) return null;
 
@@ -112,16 +129,23 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
   };
 
   const openMapsNavigation = (lat: number, lng: number, _label: string) => {
-    // Use Google Maps web URL as primary — works on all devices regardless
-    // of whether the native Google Maps app is installed. On devices WITH
-    // the app installed, the web URL auto-redirects to the app. On devices
-    // without it (or in Expo Go), it opens in the browser which still
-    // provides turn-by-turn. The old `google.navigation:` scheme crashes
-    // with "No Activity found to handle Intent" when the app isn't present.
+    // Fallback: open in external maps app (used as secondary option).
     const googleUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
     const appleUrl = `http://maps.apple.com/?daddr=${lat},${lng}&dirflg=d`;
     const url = Platform.OS === 'ios' ? appleUrl : googleUrl;
     Linking.openURL(url).catch(() => Linking.openURL(googleUrl));
+  };
+
+  // Start in-app navigation mode: notify parent to draw a route on the map.
+  const startInAppNavigation = (lat: number, lng: number, label: string) => {
+    setIsNavigating(true);
+    onNavigatingChange?.({ lat, lng, label });
+  };
+
+  // Exit in-app navigation: clear the route overlay from the map.
+  const exitInAppNavigation = () => {
+    setIsNavigating(false);
+    onNavigatingChange?.(null);
   };
 
   const showAlert = (
@@ -262,13 +286,36 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
         {/* ── Action buttons ──────────────────────────────── */}
         {rideState === 'navigating_to_pickup' ? (
           <View style={styles.actions}>
-            <TouchableOpacity
-              style={[styles.actionPrimary, { backgroundColor: ACCENT }]}
-              onPress={() => openMapsNavigation(ride.pickup_lat, ride.pickup_lng, 'Pickup')}
-            >
-              <Ionicons name="navigate" size={20} color="#fff" />
-              <Text style={styles.actionPrimaryText}>Navigate to Pickup</Text>
-            </TouchableOpacity>
+            {isNavigating ? (
+              /* ── Navigation active: show status + exit button ── */
+              <View style={styles.navActiveRow}>
+                <View style={styles.navActiveBadge}>
+                  <Ionicons name="navigate-circle" size={18} color={ACCENT} />
+                  <Text style={[styles.navActiveText, { color: ACCENT }]}>Navigating In-App</Text>
+                </View>
+                <TouchableOpacity style={styles.navExitBtn} onPress={exitInAppNavigation}>
+                  <Text style={styles.navExitText}>Exit</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              /* ── Navigation not started: primary Navigate + secondary Open in Maps ── */
+              <TouchableOpacity
+                style={[styles.actionPrimary, { backgroundColor: ACCENT }]}
+                onPress={() => startInAppNavigation(ride.pickup_lat, ride.pickup_lng, 'Pickup')}
+              >
+                <Ionicons name="navigate" size={20} color="#fff" />
+                <Text style={styles.actionPrimaryText}>Navigate to Pickup</Text>
+              </TouchableOpacity>
+            )}
+            {!isNavigating && (
+              <TouchableOpacity
+                style={styles.actionSecondarySmall}
+                onPress={() => openMapsNavigation(ride.pickup_lat, ride.pickup_lng, 'Pickup')}
+              >
+                <Ionicons name="open-outline" size={14} color="#999" />
+                <Text style={styles.actionSecondarySmallText}>Open in Maps</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={styles.actionSecondary}
               onPress={onArriveAtPickup}
@@ -286,13 +333,34 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
 
         {rideState === 'trip_in_progress' ? (
           <View style={styles.actions}>
-            <TouchableOpacity
-              style={[styles.actionPrimary, { backgroundColor: '#3B82F6' }]}
-              onPress={() => openMapsNavigation(ride.dropoff_lat, ride.dropoff_lng, 'Dropoff')}
-            >
-              <Ionicons name="navigate" size={20} color="#fff" />
-              <Text style={styles.actionPrimaryText}>Navigate to Dropoff</Text>
-            </TouchableOpacity>
+            {isNavigating ? (
+              <View style={styles.navActiveRow}>
+                <View style={styles.navActiveBadge}>
+                  <Ionicons name="navigate-circle" size={18} color="#3B82F6" />
+                  <Text style={[styles.navActiveText, { color: '#3B82F6' }]}>Navigating In-App</Text>
+                </View>
+                <TouchableOpacity style={styles.navExitBtn} onPress={exitInAppNavigation}>
+                  <Text style={styles.navExitText}>Exit</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.actionPrimary, { backgroundColor: '#3B82F6' }]}
+                onPress={() => startInAppNavigation(ride.dropoff_lat, ride.dropoff_lng, 'Dropoff')}
+              >
+                <Ionicons name="navigate" size={20} color="#fff" />
+                <Text style={styles.actionPrimaryText}>Navigate to Dropoff</Text>
+              </TouchableOpacity>
+            )}
+            {!isNavigating && (
+              <TouchableOpacity
+                style={styles.actionSecondarySmall}
+                onPress={() => openMapsNavigation(ride.dropoff_lat, ride.dropoff_lng, 'Dropoff')}
+              >
+                <Ionicons name="open-outline" size={14} color="#999" />
+                <Text style={styles.actionSecondarySmallText}>Open in Maps</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[styles.actionPrimary, { backgroundColor: '#22C55E' }]}
               onPress={() => showAlert(
@@ -528,6 +596,55 @@ const styles = StyleSheet.create({
   // Cancel
   cancelBtn: { paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   cancelText: { fontSize: 13, fontWeight: '600', color: '#EF4444' },
+
+  // In-app navigation active state
+  navActiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F0F9FF',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1.5,
+    borderColor: '#BAE6FD',
+  },
+  navActiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  navActiveText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  navExitBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  navExitText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#555',
+  },
+
+  // "Open in Maps" secondary small link
+  actionSecondarySmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 6,
+  },
+  actionSecondarySmallText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#999',
+  },
 });
 
 export default ActiveRidePanel;

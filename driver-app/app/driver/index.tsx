@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Alert, Platform, Linking, Animated, TouchableOpacity, ActivityIndicator } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,25 @@ import SpinrConfig from '@shared/config/spinr.config';
 
 // Use Google Maps on Android, Apple Maps (native) on iOS
 const MAP_PROVIDER = Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined;
+
+/**
+ * Decode a Google Maps encoded polyline string into lat/lng coordinates.
+ * Standard algorithm — see https://developers.google.com/maps/documentation/utilities/polylinealgorithm
+ */
+function decodePolyline(encoded: string): { latitude: number; longitude: number }[] {
+  const coords: { latitude: number; longitude: number }[] = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b: number, shift = 0, result = 0;
+    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0; result = 0;
+    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+    coords.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return coords;
+}
 
 const COLORS = {
   primary: SpinrConfig.theme.colors.background,
@@ -67,6 +86,45 @@ export default function DriverDashboard() {
   } = useDriverDashboard();
 
   const [countdown, setCountdownState] = useState(countdownSeconds);
+
+  // ── In-app navigation state ──────────────────────────────────────────────
+  // navDestination is set by ActiveRidePanel when the driver taps "Navigate".
+  // routeCoords holds the decoded Directions API polyline to draw on the map.
+  const [navDestination, setNavDestination] = useState<{ lat: number; lng: number } | null>(null);
+  const [routeCoords, setRouteCoords] = useState<{ latitude: number; longitude: number }[]>([]);
+
+  // Fetch a driving route from driver's current location to navDestination
+  // using the Google Directions API. Decodes the overview polyline for MapView.
+  const fetchRoute = useCallback(async (destLat: number, destLng: number) => {
+    if (!location) return;
+    const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) { console.log('[Nav] Google Maps API key not set'); return; }
+    try {
+      const origin = `${location.coords.latitude},${location.coords.longitude}`;
+      const destination = `${destLat},${destLng}`;
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&mode=driving&key=${apiKey}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data.status === 'OK' && data.routes?.[0]?.overview_polyline?.points) {
+        setRouteCoords(decodePolyline(data.routes[0].overview_polyline.points));
+      } else {
+        console.log('[Nav] Directions API returned status:', data.status);
+        setRouteCoords([]);
+      }
+    } catch (e) {
+      console.log('[Nav] Failed to fetch route:', e);
+      setRouteCoords([]);
+    }
+  }, [location]);
+
+  // Fetch route whenever destination changes; clear coords when navigation exits.
+  useEffect(() => {
+    if (navDestination) {
+      fetchRoute(navDestination.lat, navDestination.lng);
+    } else {
+      setRouteCoords([]);
+    }
+  }, [navDestination, fetchRoute]);
   // Countdown timer effect
   useEffect(() => {
     if (rideState === 'ride_offered' && countdown > 0) {
@@ -291,6 +349,15 @@ export default function DriverDashboard() {
           />
         )}
         {getMapMarkers()}
+        {/* In-app navigation route polyline — shown when driver taps "Navigate" */}
+        {routeCoords.length > 1 && (
+          <Polyline
+            coordinates={routeCoords}
+            strokeWidth={4}
+            strokeColor="#007AFF"
+            lineDashPattern={undefined}
+          />
+        )}
       </MapView>
 
       {/* Top Bar */}
@@ -338,6 +405,7 @@ export default function DriverDashboard() {
           setOtpInput={setOtpInput}
           onVerifyOTP={(otp) => verifyOTP(activeRide!.ride.id, otp)}
           onNavigate={openNavigation}
+          onNavigatingChange={(dest) => setNavDestination(dest ? { lat: dest.lat, lng: dest.lng } : null)}
           onArriveAtPickup={() => arriveAtPickup(activeRide!.ride.id)}
           onStartRide={() => startRide(activeRide!.ride.id)}
           onCompleteRide={() => completeRide(activeRide!.ride.id)}
