@@ -1,37 +1,116 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from typing import Dict, Any
+from typing import Dict, Any, List
 try:
     from ..dependencies import (
-        get_current_user, generate_otp, create_jwt_token, 
+        get_current_user, generate_otp, create_jwt_token,
         OTP_EXPIRY_MINUTES, verify_jwt_token, security
     )
     from ..schemas import (
-        SendOTPRequest, VerifyOTPRequest, AuthResponse, 
+        SendOTPRequest, VerifyOTPRequest, AuthResponse,
         UserProfile, OTPRecord
     )
     from ..db import db
     from ..sms_service import send_otp_sms
 except ImportError:
     from dependencies import (
-        get_current_user, generate_otp, create_jwt_token, 
+        get_current_user, generate_otp, create_jwt_token,
         OTP_EXPIRY_MINUTES, verify_jwt_token, security
     )
     from schemas import (
-        SendOTPRequest, VerifyOTPRequest, AuthResponse, 
+        SendOTPRequest, VerifyOTPRequest, AuthResponse,
         UserProfile, OTPRecord
     )
     from db import db
     from sms_service import send_otp_sms
     from settings_loader import get_app_settings
 import logging
+import time
+import os
 from datetime import datetime, timedelta, timezone
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 import uuid
 
+try:
+    from ..utils.audit_logger import log_security_event, SecurityEvent
+except ImportError:
+    from utils.audit_logger import log_security_event, SecurityEvent
+
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
 api_router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+# ── OTP cumulative failure lockout ───────────────────────────────────────────
+# slowapi limits requests per minute, but an attacker rotating IPs can bypass
+# that. This in-memory tracker counts failures per phone number over a rolling
+# 1-hour window and locks the phone for 24 hours after OTP_MAX_FAILURES failures.
+#
+# NOTE: This counter is process-local — it resets on server restart and is NOT
+# shared across multiple instances. A Redis-backed version is planned for Sprint 4.
+_otp_failures: Dict[str, List[float]] = {}  # phone → [POSIX timestamps of failures]
+OTP_MAX_FAILURES   = 5       # failed attempts within the window before lockout
+OTP_LOCKOUT_WINDOW = 3600    # rolling window in seconds (1 hour)
+OTP_LOCKOUT_DURATION = 86400 # lockout duration in seconds (24 hours)
+_is_production = os.environ.get('ENV', 'development') == 'production'
+
+
+def _prune_old_failures(phone: str, now: float) -> None:
+    """Remove failure timestamps that have fallen outside the lockout window."""
+    cutoff = now - OTP_LOCKOUT_WINDOW
+    if phone in _otp_failures:
+        _otp_failures[phone] = [t for t in _otp_failures[phone] if t > cutoff]
+        if not _otp_failures[phone]:
+            del _otp_failures[phone]
+
+
+def check_otp_lockout(phone: str) -> None:
+    """
+    Raise HTTP 429 if the phone number is currently locked out.
+
+    The Retry-After header tells the client (in seconds) when the lockout
+    expires so it can display a countdown to the user.
+    """
+    now = time.time()
+    _prune_old_failures(phone, now)
+    failures = _otp_failures.get(phone, [])
+    if len(failures) >= OTP_MAX_FAILURES:
+        # Lockout expires OTP_LOCKOUT_DURATION seconds after the FIRST failure
+        # in the current window, not from the latest attempt.
+        locked_until = failures[0] + OTP_LOCKOUT_DURATION
+        retry_after = max(0, int(locked_until - now))
+        hours = retry_after // 3600
+        minutes = (retry_after % 3600) // 60
+        detail = (
+            f'Too many failed verification attempts. '
+            f'Try again in {hours}h {minutes}m.'
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=detail,
+            headers={'Retry-After': str(retry_after)},
+        )
+
+
+def record_otp_failure(phone: str) -> None:
+    """Record a failed OTP attempt for this phone number."""
+    now = time.time()
+    _prune_old_failures(phone, now)
+    if phone not in _otp_failures:
+        _otp_failures[phone] = []
+    _otp_failures[phone].append(now)
+    failure_count = len(_otp_failures[phone])
+    if failure_count >= OTP_MAX_FAILURES:
+        log_security_event(
+            SecurityEvent.OTP_LOCKOUT_TRIGGERED,
+            phone_hint=phone[-4:],
+            failure_count=failure_count,
+        )
+        logger.warning(f'OTP lockout triggered for ...{phone[-4:]} after {failure_count} failures')
+
+
+def clear_otp_failures(phone: str) -> None:
+    """Reset all failure records for this phone number on successful verification."""
+    _otp_failures.pop(phone, None)
 
 @api_router.post("/send-otp")
 @limiter.limit("5/minute")
@@ -96,7 +175,12 @@ async def send_otp(request: Request, body: SendOTPRequest):
 async def verify_otp(request: Request, body: VerifyOTPRequest):
     phone = body.phone.strip()
     code = body.code.strip()
-    
+
+    # ── Cumulative lockout check (before any DB lookup) ──────────────────────
+    # Raises 429 with Retry-After header if this phone has exceeded OTP_MAX_FAILURES
+    # failed attempts in the last OTP_LOCKOUT_WINDOW seconds.
+    check_otp_lockout(phone)
+
     otp_record = None
     try:
         otp_record = await db.otp_records.find_one({
@@ -106,13 +190,16 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
         })
     except Exception as e:
         logger.warning(f'Could not query OTP from DB: {e}')
-    
+
     # Dev fallback: accept code 1234 when no OTP record found (Twilio not configured)
-    if not otp_record and code == '1234':
-        logger.info(f'Dev mode: accepting code 1234 for {phone}')
+    if not otp_record and not _is_production and code == '1234':
+        logger.info(f'Dev mode: accepting code 1234 for ...{phone[-4:]}')
         otp_record = {'id': 'dev', 'phone': phone, 'code': code, 'expires_at': datetime.utcnow() + timedelta(minutes=5)}
-    
+
     if not otp_record:
+        # Record the failure BEFORE raising so the counter is incremented
+        record_otp_failure(phone)
+        log_security_event(SecurityEvent.OTP_INVALID, phone_hint=phone[-4:])
         raise HTTPException(status_code=400, detail='Invalid verification code')
     
     # Parse expires_at to datetime if it's a string (from Supabase)
@@ -139,8 +226,13 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
             await db.otp_records.delete_one({'id': otp_record['id']})
         except Exception:
             pass
+        record_otp_failure(phone)
+        log_security_event(SecurityEvent.OTP_EXPIRED, phone_hint=phone[-4:])
         raise HTTPException(status_code=400, detail='OTP has expired')
-    
+
+    # OTP is valid — reset the failure counter before proceeding
+    clear_otp_failures(phone)
+
     try:
         await db.otp_records.update_one({'id': otp_record['id']}, {'$set': {'verified': True}})
     except Exception:
