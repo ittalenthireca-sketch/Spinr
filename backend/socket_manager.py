@@ -2,11 +2,15 @@ from typing import Dict, List
 from fastapi import WebSocket
 from datetime import datetime
 from loguru import logger
+import os
 
 try:
     from .db import diag_logger  # type: ignore
 except ImportError:
     from db import diag_logger  # type: ignore
+
+
+MAX_CONNECTIONS = int(os.environ.get('WS_MAX_CONNECTIONS', '1000'))
 
 
 class ConnectionManager:
@@ -15,6 +19,9 @@ class ConnectionManager:
         self.driver_locations: Dict[str, Dict] = {}
 
     async def connect(self, websocket: WebSocket, client_id: str):
+        if len(self.active_connections) >= MAX_CONNECTIONS:
+            await websocket.close(code=1008, reason="Server at capacity")
+            return
         # WebSocket is already accepted in the endpoint handler
         self.active_connections[client_id] = websocket
         logger.info(f"WebSocket connected: {client_id}")

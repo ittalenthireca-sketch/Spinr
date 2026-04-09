@@ -1,4 +1,5 @@
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
@@ -28,6 +29,8 @@ def init_middleware(app):
                 "This is a security risk. Configure specific allowed origins."
             )
     
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,

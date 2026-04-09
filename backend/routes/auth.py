@@ -85,10 +85,6 @@ async def send_otp(request: Request, body: SendOTPRequest):
         'success': True,
         'message': f'OTP sent to {phone}'
     }
-    # Include dev_otp when Twilio is NOT configured (always shows 1234 in dev)
-    if not twilio_configured:
-        response['dev_otp'] = otp_code
-    
     return response
 
 @api_router.post("/verify-otp", response_model=AuthResponse)

@@ -97,10 +97,6 @@ export default function LoginScreen() {
           />
         </View>
 
-        {!isFirebaseConfigured && (
-          <Text style={styles.devHint}>Dev mode — OTP is 1234</Text>
-        )}
-
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
           onPress={handleSendCode}
@@ -142,5 +138,4 @@ const styles = StyleSheet.create({
   button: { backgroundColor: '#000', borderRadius: 8, height: 56, justifyContent: 'center', alignItems: 'center' },
   buttonDisabled: { backgroundColor: '#666' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  devHint: { fontSize: 13, color: '#999', textAlign: 'center' as const, marginBottom: 12 },
 });

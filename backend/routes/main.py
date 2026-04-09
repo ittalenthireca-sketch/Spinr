@@ -26,4 +26,13 @@ async def root():
 
 @api_router.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    from datetime import datetime, timezone
+    try:
+        from supabase_client import supabase  # type: ignore
+        if supabase is None:
+            raise RuntimeError("Supabase client not initialised")
+        supabase.table('users').select('id').limit(1).execute()
+        return {"status": "healthy", "database": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail={"status": "unhealthy", "database": "error", "error": str(e)})

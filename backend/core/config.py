@@ -23,16 +23,16 @@ class Settings(BaseSettings):
     FIREBASE_SERVICE_ACCOUNT_JSON: Optional[str] = None
     
     # Security settings
-    JWT_SECRET: str = "your-strong-secret-key"  # Default for development only
+    JWT_SECRET: str = ""  # REQUIRED: set via environment variable
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    
+
     # CORS settings
-    ALLOWED_ORIGINS: str = "*"
-    
+    ALLOWED_ORIGINS: str = ""  # REQUIRED: set via environment variable
+
     # Admin credentials
-    ADMIN_EMAIL: str = "admin@spinr.ca"
-    ADMIN_PASSWORD: str = "admin123"
+    ADMIN_EMAIL: str = ""  # REQUIRED: set via environment variable
+    ADMIN_PASSWORD: str = ""  # REQUIRED: set via environment variable
     
     # Rate limiting
     RATE_LIMIT: str = "10/minute"

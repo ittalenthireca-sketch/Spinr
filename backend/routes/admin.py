@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import jwt
 import uuid
 import logging
+import bcrypt
 
 try:
     from ..dependencies import get_current_user, get_admin_user  # type: ignore
@@ -83,7 +84,6 @@ async def get_session(authorization: Optional[str] = Header(None)):
 @admin_auth_router.post("/login")
 async def admin_login(request: LoginRequest):
     """Admin login — supports super admin + staff members with module access."""
-    import hashlib
 
     ALL_MODULES = [
         "dashboard",
@@ -137,8 +137,8 @@ async def admin_login(request: LoginRequest):
     # 2. Staff member
     staff = await db.admin_staff.find_one({"email": request.email.lower()})
     if staff:
-        pw_hash = hashlib.sha256(request.password.encode()).hexdigest()
-        if staff.get("password_hash") == pw_hash:
+        stored_hash = staff.get("password_hash", "")
+        if stored_hash and bcrypt.checkpw(request.password.encode('utf-8'), stored_hash.encode('utf-8')):
             if not staff.get("is_active", True):
                 raise HTTPException(status_code=403, detail="Account is deactivated")
             await db.admin_staff.update_one(
@@ -188,7 +188,13 @@ class DriverVerifyRequest(BaseModel):
 @admin_router.get("/settings")
 async def admin_get_settings():
     """Get all settings (normalized single app_settings row as dict)."""
-    return await get_app_settings()
+    SENSITIVE_KEYS = {
+        'stripe_secret_key', 'stripe_webhook_secret', 'supabase_service_role_key',
+        'jwt_secret', 'twilio_auth_token', 'firebase_server_key', 'sendgrid_api_key'
+    }
+    settings = await get_app_settings()
+    settings = {k: v for k, v in settings.items() if k not in SENSITIVE_KEYS}
+    return settings
 
 
 @admin_router.put("/settings")
@@ -1876,8 +1882,6 @@ async def create_staff(
     req: StaffCreateRequest, authorization: Optional[str] = Header(None)
 ):
     """Create a new staff member with role-based module access."""
-    import hashlib
-
     # Check if email already exists
     existing = await db.admin_staff.find_one({"email": req.email.lower()})
     if existing:
@@ -1894,7 +1898,7 @@ async def create_staff(
     staff = {
         "id": str(uuid.uuid4()),
         "email": req.email.lower(),
-        "password_hash": hashlib.sha256(req.password.encode()).hexdigest(),
+        "password_hash": bcrypt.hashpw(req.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
         "first_name": req.first_name,
         "last_name": req.last_name,
         "role": req.role,

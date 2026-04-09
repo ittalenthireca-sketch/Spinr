@@ -18,8 +18,10 @@ _env = os.environ.get('ENV', 'development')
 JWT_SECRET = os.environ.get('JWT_SECRET')
 if not JWT_SECRET:
     if _env == 'production':
-        # In a real app we might raise error, but to avoid breaking things during migration we'll warn
-        logger.warning('JWT_SECRET not set — using insecure dev key.')
+        raise RuntimeError(
+            "FATAL: JWT_SECRET environment variable is not set. "
+            "Cannot start in production without a secure secret."
+        )
     JWT_SECRET = 'spinr-dev-secret-key-NOT-FOR-PRODUCTION'
 
 JWT_ALGORITHM = 'HS256'
@@ -42,7 +44,6 @@ def create_jwt_token(user_id: str, phone: str, session_id: str = None) -> str:
         payload['session_id'] = session_id
         
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-    logger.info(f"DEBUG: Created JWT token for user_id={user_id}, session_id={session_id}, JWT_SECRET prefix used: {JWT_SECRET[:10] if JWT_SECRET else 'None'}...")
     return token
 
 def verify_jwt_token(token: str) -> dict:
@@ -101,8 +102,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         payload = verify_jwt_token(token)
         # logger.info(f"JWT Valid. Payload: {payload}")
     except Exception as e:
-        logger.error(f"JWT Verification Failed: {e} | Token prefix: {token[:20] if token else 'None'}...")
-        logger.error(f"DEBUG: Active JWT_SECRET being used for verification: '{JWT_SECRET}' (length: {len(JWT_SECRET) if JWT_SECRET else 0})")
+        logger.error(f"JWT Verification Failed: {e}")
         raise HTTPException(status_code=401, detail=f'Invalid token: {str(e)}')
 
     user = None
