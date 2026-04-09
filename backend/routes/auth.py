@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import Dict, Any
 try:
@@ -54,8 +55,10 @@ async def send_otp(request: Request, body: SendOTPRequest):
         settings.get('twilio_from_number')
     )
     
-    # Use fixed 1234 OTP when Twilio is not configured (dev mode)
-    otp_code = generate_otp() if twilio_configured else '1234'
+    # In production, always generate a real OTP regardless of Twilio config.
+    # The '1234' fallback is strictly development-only and is unreachable in production.
+    _is_production = os.environ.get('ENV', 'development') == 'production'
+    otp_code = generate_otp() if (twilio_configured or _is_production) else '1234'
     
     otp_record = OTPRecord(
         phone=phone,
@@ -85,8 +88,8 @@ async def send_otp(request: Request, body: SendOTPRequest):
         'success': True,
         'message': f'OTP sent to {phone}'
     }
-    # Include dev_otp when Twilio is NOT configured (always shows 1234 in dev)
-    if not twilio_configured:
+    # Include dev_otp in response only in non-production environments
+    if not twilio_configured and not _is_production:
         response['dev_otp'] = otp_code
     
     return response
@@ -107,9 +110,12 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
     except Exception as e:
         logger.warning(f'Could not query OTP from DB: {e}')
     
-    # Dev fallback: accept code 1234 when no OTP record found (Twilio not configured)
-    if not otp_record and code == '1234':
-        logger.info(f'Dev mode: accepting code 1234 for {phone}')
+    # Dev fallback: accept code 1234 ONLY in non-production environments when Twilio is not configured.
+    # This branch is completely unreachable when ENV=production — guarded by both the env check
+    # and the fact that production always generates a real random OTP (never '1234').
+    _is_production_verify = os.environ.get('ENV', 'development') == 'production'
+    if not otp_record and not _is_production_verify and code == '1234':
+        logger.info(f'Dev mode: accepting code 1234 for phone ending ...{phone[-4:]}')
         otp_record = {'id': 'dev', 'phone': phone, 'code': code, 'expires_at': datetime.utcnow() + timedelta(minutes=5)}
     
     if not otp_record:
