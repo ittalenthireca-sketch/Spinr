@@ -1116,6 +1116,75 @@ async def get_ride_receipt(ride_id: str, current_user: dict = Depends(get_curren
         'vehicle_type': vehicle.get('name') if vehicle else "Standard"
     }
     
-    # Ideally send email here via SendGrid/Mailgun if POST
-    
     return {'success': True, 'receipt': receipt_data}
+
+
+@api_router.post("/{ride_id}/receipt/email")
+async def resend_receipt_email(ride_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Re-send the receipt email for a completed ride.
+
+    Useful when the original email failed (SendGrid down, no email on profile at
+    payment time) or when the rider wants a copy for expenses.
+    Rate-limited to 3 sends per ride to prevent abuse.
+    """
+    ride = await db.rides.find_one({'id': ride_id})
+    if not ride:
+        raise HTTPException(status_code=404, detail="Ride not found")
+    if ride.get('rider_id') != current_user['id']:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if ride.get('status') != 'completed':
+        raise HTTPException(status_code=400, detail="Receipts are only available for completed rides")
+
+    # Enforce a per-ride resend cap (stored as receipt_email_count in the ride)
+    MAX_RESENDS = 3
+    resend_count = ride.get('receipt_email_count', 0)
+    if resend_count >= MAX_RESENDS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Receipt already sent {resend_count} times. Contact support if you need another copy."
+        )
+
+    rider = await db.users.find_one({'id': current_user['id']})
+    if not rider or not rider.get('email'):
+        raise HTTPException(
+            status_code=400,
+            detail="No email address on your profile. Add one in Account → Settings before requesting a receipt."
+        )
+
+    # Build driver info for the email template
+    driver_info = None
+    if ride.get('driver_id'):
+        drv = await db.drivers.find_one({'id': ride['driver_id']})
+        if drv:
+            du = await db.users.find_one({'id': drv.get('user_id')})
+            if du:
+                driver_info = {
+                    **du,
+                    'name': f"{du.get('first_name','')} {du.get('last_name','')}".strip()
+                }
+
+    try:
+        from utils.email_receipt import send_receipt_email
+        sent = await send_receipt_email(
+            ride, rider, driver_info, float(ride.get('tip_amount', 0))
+        )
+    except Exception as exc:
+        logger.warning(f"Receipt email error for ride {ride_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to send receipt email. Please try again later.")
+
+    if not sent:
+        raise HTTPException(status_code=500, detail="Receipt email could not be delivered.")
+
+    # Increment the resend counter
+    await db.rides.update_one(
+        {'id': ride_id},
+        {'$set': {'receipt_email_count': resend_count + 1}}
+    )
+
+    logger.info(f"RECEIPT_EMAIL_RESENT ride_id={ride_id} user_id={current_user['id']} count={resend_count + 1}")
+    return {
+        'success': True,
+        'message': f"Receipt sent to {rider['email']}",
+        'sends_remaining': MAX_RESENDS - (resend_count + 1),
+    }

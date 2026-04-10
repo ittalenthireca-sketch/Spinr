@@ -9,6 +9,7 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
 import api from '@shared/api/client';
 import SpinrConfig from '@shared/config/spinr.config';
+import CustomAlert from '@shared/components/CustomAlert';
 
 const COLORS = SpinrConfig.theme.colors;
 const MAP_PROVIDER = Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined;
@@ -18,9 +19,28 @@ export default function RideDetailsScreen() {
   const router = useRouter();
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
   const [ride, setRide] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [routeCoords, setRouteCoords] = useState<any[]>([]);
+  const [emailSending, setEmailSending] = useState(false);
+  const [alert, setAlert] = useState<{
+    visible: boolean; title: string; message: string;
+    variant: 'info' | 'success' | 'warning' | 'danger';
+  }>({ visible: false, title: '', message: '', variant: 'info' });
   const mapRef = React.useRef<MapView>(null);
+
+  const handleEmailReceipt = async () => {
+    if (!rideId || emailSending) return;
+    setEmailSending(true);
+    try {
+      await api.post(`/rides/${rideId}/receipt/email`);
+      setAlert({ visible: true, title: 'Receipt Sent', message: 'A receipt has been emailed to your account.', variant: 'success' });
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || 'Could not send receipt email.';
+      setAlert({ visible: true, title: 'Error', message: msg, variant: 'danger' });
+    } finally {
+      setEmailSending(false);
+    }
+  };
 
   useEffect(() => {
     if (rideId) fetchRide();
@@ -198,6 +218,19 @@ export default function RideDetailsScreen() {
           </View>
         </View>
 
+        {/* Email Receipt (completed rides only) */}
+        {isCompleted && (
+          <TouchableOpacity
+            style={[styles.helpBtn, { marginBottom: 10 }]}
+            onPress={handleEmailReceipt}
+            disabled={emailSending}
+          >
+            <Ionicons name="mail-outline" size={20} color={COLORS.primary} />
+            <Text style={styles.helpText}>{emailSending ? 'Sending…' : 'Email receipt to my account'}</Text>
+            <Ionicons name="chevron-forward" size={16} color="#CCC" />
+          </TouchableOpacity>
+        )}
+
         {/* Help */}
         <TouchableOpacity style={styles.helpBtn} onPress={() => router.push('/support' as any)}>
           <Ionicons name="help-circle-outline" size={20} color={COLORS.primary} />
@@ -205,6 +238,15 @@ export default function RideDetailsScreen() {
           <Ionicons name="chevron-forward" size={16} color="#CCC" />
         </TouchableOpacity>
       </ScrollView>
+
+      <CustomAlert
+        visible={alert.visible}
+        title={alert.title}
+        message={alert.message}
+        variant={alert.variant}
+        buttons={[{ text: 'OK' }]}
+        onClose={() => setAlert(p => ({ ...p, visible: false }))}
+      />
     </SafeAreaView>
   );
 }

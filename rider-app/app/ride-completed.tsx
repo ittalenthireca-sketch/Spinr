@@ -156,12 +156,34 @@ export default function RideCompletedScreen() {
           </Text>
         </View>
 
-        {/* Invoice Button */}
-        <TouchableOpacity style={styles.invoiceBtn} onPress={handleShareInvoice}>
-          <Ionicons name="receipt-outline" size={18} color={COLORS.primary} />
-          <Text style={styles.invoiceBtnText}>Download / Share Invoice</Text>
-          <Ionicons name="share-outline" size={16} color="#999" />
-        </TouchableOpacity>
+        {/* Invoice buttons */}
+        <View style={styles.invoiceRow}>
+          <TouchableOpacity style={[styles.invoiceBtn, styles.invoiceBtnHalf]} onPress={handleShareInvoice}>
+            <Ionicons name="share-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.invoiceBtnText}>Share</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.invoiceBtn, styles.invoiceBtnHalf]}
+            onPress={async () => {
+              if (!rideId || !alreadyPaid) return;
+              try {
+                await api.post(`/rides/${rideId}/receipt/email`);
+                setAlertState({
+                  visible: true, title: 'Receipt Sent',
+                  message: 'A receipt has been emailed to your account.',
+                  variant: 'success', buttons: [{ text: 'OK' }],
+                });
+              } catch (e: any) {
+                const msg = e?.response?.data?.detail || 'Could not send receipt email.';
+                setAlertState({ visible: true, title: 'Error', message: msg, variant: 'danger', buttons: [{ text: 'OK' }] });
+              }
+            }}
+            disabled={!alreadyPaid}
+          >
+            <Ionicons name="mail-outline" size={16} color={alreadyPaid ? COLORS.primary : '#ccc'} />
+            <Text style={[styles.invoiceBtnText, !alreadyPaid && { color: '#ccc' }]}>Email Receipt</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Route Map */}
         {currentRide && Number(currentRide.pickup_lat) && Number(currentRide.dropoff_lat) && (
@@ -421,11 +443,13 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, color: '#888' },
 
   // Invoice
+  invoiceRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   invoiceBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%',
-    backgroundColor: '#F9F9F9', borderRadius: 14, padding: 14, marginBottom: 16,
+    backgroundColor: '#F9F9F9', borderRadius: 14, padding: 14,
     borderWidth: 1, borderColor: '#ECECEC',
   },
+  invoiceBtnHalf: { flex: 1, width: undefined },
   invoiceBtnText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
 
   // Route Map
