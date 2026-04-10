@@ -19,7 +19,7 @@
     "@stripe/stripe-react-native": "0.50.3",
     "@supabase/supabase-js": "^2.95.3",
     "ajv": "^8.18.0",
-    "axios": "^1.13.4",
+    "axios": "^1.15.0",
     "expo": "~54.0.0",
     "expo-blur": "~15.0.8",
     "expo-clipboard": "~8.0.8",
