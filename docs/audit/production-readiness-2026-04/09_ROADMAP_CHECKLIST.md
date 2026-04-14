@@ -48,7 +48,7 @@
 | 2.1 | WebSocket fan-out via Redis pub/sub | B3 |
 | 2.2 | Sentry mandatory (backend + mobile + admin) + sourcemaps ✅ | T1 |
 | 2.3 | Prometheus `/metrics` + Grafana dashboard ✅ | T3 |
-| 2.4 | SLO doc + alert policy with burn rates | T2 |
+| 2.4 | SLO doc + alert policy with burn rates ✅ | T2 |
 | 2.5 | Load test baseline (k6) | T8 |
 | 2.6 | Synthetic monitors (health + rider flow) | T9 |
 | 2.7 | Log aggregation (Loki/Datadog) | T10 |

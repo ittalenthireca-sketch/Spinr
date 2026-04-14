@@ -1,0 +1,255 @@
+# Spinr — Prometheus alerting rules
+#
+# Phase 2.4b of the production-readiness audit (audit finding T2).
+#
+# Multi-window multi-burn-rate alerts per the Google SRE Workbook
+# (Chapter 5). Each SLO gets a pair of rules:
+#
+#   * "fast burn"   — 2% of the 30-day budget burned in 1 hour.
+#                     Paging alert. Implies an active outage; the
+#                     budget is on track to finish within ~2h.
+#   * "slow burn"   — 10% of budget in 6 hours. Ticket-only.
+#                     Implies gradual degradation (e.g. a bad deploy
+#                     trickle that nobody noticed).
+#
+# Burn-rate thresholds are derived from the SLO targets defined in
+# docs/ops/SLOs.md — if you change an SLO, update the burn-rate math
+# here by hand. The alternative is pyrra / sloth generating this
+# file from a single SLO spec; we can migrate later if maintenance
+# becomes a chore.
+#
+# Severity convention:
+#   severity: page    — paging alert (waking someone up)
+#   severity: ticket  — backlog alert (review during business hours)
+#
+# Every alert has a `runbook_url` annotation. Alertmanager includes
+# it in the notification payload so the responder has one click to
+# the remediation steps.
+
+groups:
+  - name: api-availability
+    interval: 30s
+    rules:
+      # Recording rules for the SLI — define once, reuse in both burn
+      # thresholds. Using count()/count() rather than rate() because
+      # Fly's API machines scale to zero overnight and rate() would
+      # blank out; count() preserves the "good==total==0 -> 100%"
+      # semantics which doesn't burn budget during idle periods.
+      - record: spinr:http_availability:ratio_5m
+        expr: |
+          sum(rate(http_requests_total{handler!~"/health.*|/metrics"}[5m]))
+            -
+          sum(rate(http_requests_total{handler!~"/health.*|/metrics",status=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_requests_total{handler!~"/health.*|/metrics"}[5m])), 1)
+      - record: spinr:http_error:ratio_1h
+        expr: |
+          sum(rate(http_requests_total{handler!~"/health.*|/metrics",status=~"5.."}[1h]))
+          /
+          clamp_min(sum(rate(http_requests_total{handler!~"/health.*|/metrics"}[1h])), 1)
+      - record: spinr:http_error:ratio_6h
+        expr: |
+          sum(rate(http_requests_total{handler!~"/health.*|/metrics",status=~"5.."}[6h]))
+          /
+          clamp_min(sum(rate(http_requests_total{handler!~"/health.*|/metrics"}[6h])), 1)
+
+      - alert: SpinrAPIAvailabilityFastBurn
+        # SLO: 99.9% => budget = 0.1%. Fast-burn threshold of 14.4
+        # means we'd exhaust the 30-day budget in 2 hours.
+        # 14.4 * 0.001 = 0.0144 (1.44% error rate).
+        expr: spinr:http_error:ratio_1h > 0.0144
+        for: 5m
+        labels:
+          severity: page
+          slo: api-availability
+          team: backend
+        annotations:
+          summary: "API error rate > 1.44% for 5m — burning 30-day budget in ~2h"
+          description: "Current 1h 5xx ratio is {{ $value | humanizePercentage }}. Budget burn exceeds 14.4× nominal. See runbook."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/api-down.md"
+          dashboard: "ops/grafana/spinr-overview.json"
+
+      - alert: SpinrAPIAvailabilitySlowBurn
+        # 6 * 0.001 = 0.006 (0.6% error rate). 10% of budget in 6h.
+        expr: spinr:http_error:ratio_6h > 0.006
+        for: 30m
+        labels:
+          severity: ticket
+          slo: api-availability
+          team: backend
+        annotations:
+          summary: "API error rate sustained above 0.6% for 30m"
+          description: "6h 5xx ratio is {{ $value | humanizePercentage }}. Not a pager, but indicates a slow-burn regression — probably a bad deploy earlier today."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/api-down.md"
+
+  - name: api-latency
+    interval: 30s
+    rules:
+      - record: spinr:http_latency_slow:ratio_5m
+        # Fraction of requests SLOWER than 500ms. Computed as
+        # 1 − (fraction under 500ms); SLO is "95% under 500ms" so the
+        # burn threshold maps onto the fast/slow pair the same way.
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{handler!~"/health.*|/metrics",le="0.5"}[5m]))
+            /
+            clamp_min(sum(rate(http_request_duration_seconds_count{handler!~"/health.*|/metrics"}[5m])), 1)
+          )
+      - record: spinr:http_latency_slow:ratio_1h
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{handler!~"/health.*|/metrics",le="0.5"}[1h]))
+            /
+            clamp_min(sum(rate(http_request_duration_seconds_count{handler!~"/health.*|/metrics"}[1h])), 1)
+          )
+      - record: spinr:http_latency_slow:ratio_6h
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{handler!~"/health.*|/metrics",le="0.5"}[6h]))
+            /
+            clamp_min(sum(rate(http_request_duration_seconds_count{handler!~"/health.*|/metrics"}[6h])), 1)
+          )
+
+      - alert: SpinrAPILatencyFastBurn
+        # SLO: 95% under 500ms => budget = 5%. 14.4× burn = 72% slow.
+        # Realistically that's "something catastrophically wrong"; the
+        # page should fire before that — threshold capped at 25% slow
+        # so operators catch a brown-out early.
+        expr: spinr:http_latency_slow:ratio_1h > 0.25
+        for: 10m
+        labels:
+          severity: page
+          slo: api-latency
+          team: backend
+        annotations:
+          summary: "API p95 latency exceeded 500ms for >25% of requests over 1h"
+          description: "Current slow-request ratio: {{ $value | humanizePercentage }}. Likely DB contention, upstream slowness, or a deploy that regressed."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/api-latency.md"
+
+      - alert: SpinrAPILatencySlowBurn
+        expr: spinr:http_latency_slow:ratio_6h > 0.10
+        for: 30m
+        labels:
+          severity: ticket
+          slo: api-latency
+          team: backend
+        annotations:
+          summary: "API slow-request rate sustained above 10% for 30m"
+          description: "6h slow-request ratio: {{ $value | humanizePercentage }}. Degradation is gradual; investigate during business hours."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/api-latency.md"
+
+  - name: ride-dispatch
+    interval: 30s
+    rules:
+      - alert: SpinrRideDispatchLatencyHigh
+        # SLO: 95% under 30s. Fast-burn if p95 > 60s for 10m —
+        # that's "riders are waiting twice as long as our budget".
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(spinr_ride_dispatch_latency_seconds_bucket[5m]))) > 60
+        for: 10m
+        labels:
+          severity: page
+          slo: dispatch-latency
+          team: backend
+        annotations:
+          summary: "Ride dispatch p95 > 60s (SLO is 30s) for 10m"
+          description: "p95 dispatch latency: {{ $value | humanizeDuration }}. Usually a driver-supply issue in a specific service area — check active_rides by status."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/driver-not-receiving-rides.md"
+
+      - alert: SpinrActiveRidesStuckSearching
+        # If a large number of rides have been in `searching` for
+        # more than the dispatch window, the dispatcher loop is
+        # probably wedged or service-area drivers went offline en masse.
+        expr: spinr_active_rides{status="searching"} > 20
+        for: 5m
+        labels:
+          severity: page
+          slo: dispatch-latency
+          team: backend
+        annotations:
+          summary: "More than 20 rides stuck in 'searching' for 5m"
+          description: "Rides in searching state: {{ $value }}. Either the scheduler dispatcher is wedged (check bg_task heartbeat) or there are no drivers online in the affected areas."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/driver-not-receiving-rides.md"
+
+  - name: stripe-queue
+    interval: 30s
+    rules:
+      - alert: SpinrStripeQueueBackedUp
+        # Steady state is near-zero. > 50 for 10 min means the worker
+        # is falling behind Stripe's event rate.
+        expr: spinr_stripe_queue_depth > 50
+        for: 10m
+        labels:
+          severity: ticket
+          slo: stripe-queue
+          team: backend
+        annotations:
+          summary: "Stripe event queue > 50 unprocessed for 10m"
+          description: "Queue depth: {{ $value }}. The worker loop is behind. Likely cause: Stripe API rate limit OR a specific event_type handler throwing — check bg_task_last_status."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/stripe-webhook-failure.md"
+
+      - alert: SpinrStripeQueueCritical
+        # P1 threshold: > 200 for 10m means payment receipts are
+        # stalling for hundreds of riders.
+        expr: spinr_stripe_queue_depth > 200
+        for: 10m
+        labels:
+          severity: page
+          slo: stripe-queue
+          team: backend
+        annotations:
+          summary: "Stripe event queue > 200 — payment processing stalled"
+          description: "Queue depth: {{ $value }}. Receipts won't be sent; failed-payment retries won't run. Escalate immediately."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/stripe-webhook-failure.md"
+
+  - name: background-tasks
+    interval: 30s
+    rules:
+      - alert: SpinrBgTaskHeartbeatStale
+        # Any background loop that hasn't reported in twice its
+        # expected interval. 600s (10min) is a hard floor so the
+        # alert doesn't flap on the 5s stripe worker.
+        expr: spinr_bg_task_heartbeat_age_seconds > 600
+        for: 5m
+        labels:
+          severity: page
+          slo: bg-tasks
+          team: backend
+        annotations:
+          summary: "Background task '{{ $labels.task_name }}' heartbeat stale for > 10m"
+          description: "Last heartbeat age: {{ $value | humanizeDuration }}. The loop is wedged — cascading failure likely (scheduled rides not dispatching, etc)."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/bg-task-stale.md"
+
+      - alert: SpinrBgTaskReportingError
+        # The loop is running (heartbeat fresh) but returning status=error.
+        # Different failure mode than 'stale' and needs a different fix.
+        expr: spinr_bg_task_last_status == 1
+        for: 10m
+        labels:
+          severity: ticket
+          slo: bg-tasks
+          team: backend
+        annotations:
+          summary: "Background task '{{ $labels.task_name }}' reporting error for 10m"
+          description: "The loop is running but its last iteration raised. Check Sentry for the exception and the loop's own logs."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/bg-task-stale.md"
+
+  - name: websockets
+    interval: 30s
+    rules:
+      - alert: SpinrWebSocketConnectionsCollapse
+        # Driver WS count dropping to zero when it shouldn't means the
+        # app-side reconnection is broken, or all drivers went offline
+        # simultaneously (which in turn means the app pushed them).
+        # Threshold is deliberately lenient — 0 drivers for 10 minutes
+        # is obviously wrong; 0 for 30s is routine during low-traffic.
+        expr: sum by (role) (spinr_ws_connections{role="driver"}) == 0
+        for: 10m
+        labels:
+          severity: ticket
+          slo: websocket
+          team: backend
+        annotations:
+          summary: "Zero driver WebSocket connections for 10m"
+          description: "This is either a bug in driver-app reconnect OR every driver dropped at once (bad push). If active_rides > 0, this is P1 — rides can't dispatch without driver WS."
+          runbook_url: "https://github.com/ittalenthireca-sketch/Spinr/blob/main/docs/runbooks/driver-not-receiving-rides.md"
