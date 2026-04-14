@@ -13,12 +13,12 @@
 
 | # | Item | Doc | Owner | Status |
 |---|---|---|---|---|
-| 0.1 | Set `min_machines_running = 1` + split worker process | D1 / B8 | DevOps + Backend | 🟡 partial — `min_machines_running=1` set in `fly.toml:21`; worker split pending |
-| 0.2 | Fix dead code in `core/lifespan.py` (add real DB health check) | B1 | Backend | 🟡 partial — boot-time DB probe in `core/lifespan.py:37`; `/health` endpoint is still a stub |
+| 0.1 | Set `min_machines_running = 1` + split worker process | D1 / B8 | DevOps + Backend | ✅ done — `min_machines_running=1` set in `fly.toml:35`; worker split landed via `[processes]` block in `fly.toml:21-23` + `backend/worker.py` + `FLY_PROCESS_GROUP` gate in `core/lifespan.py:17-46` |
+| 0.2 | Fix dead code in `core/lifespan.py` (add real DB health check) | B1 | Backend | ✅ done — boot-time DB probe in `core/lifespan.py:50-78`; shallow liveness `GET /health` + deep readiness `GET /health/deep` in `routes/main.py` |
 | 0.3 | Add Stripe webhook idempotency (`stripe_events` table) | B2 | Backend | ✅ done — `routes/webhooks.py:67-88` calls `claim_stripe_event` backed by `migrations/22_stripe_events.sql` |
 | 0.4 | Add security-headers middleware | S1 | Backend | ✅ done — `SecurityHeadersMiddleware` in `core/middleware.py:11-78` (CSP, HSTS, XFO, Referrer-Policy, Permissions-Policy) |
 | 0.5 | Swap in-memory rate limiter → Redis (Upstash) | S2 / P1 | Backend + DevOps | ✅ done — `utils/rate_limiter.py` uses slowapi + Redis when `RATE_LIMIT_REDIS_URL` is set; production fails fast if unset |
-| 0.6 | Fix duplicate migration prefixes + bootstrap Alembic | B4 | Backend | 🔴 not started — no `alembic/` dir; raw SQL files `01_`..`26_` (no prefix collisions found) |
+| 0.6 | Fix duplicate migration prefixes + bootstrap Alembic | B4 | Backend | ✅ done — prefixes renumbered (see `backend/migrations/README.md` historical notes); Alembic scaffolded under `backend/alembic/` with baseline revision `0001_baseline` and CI `upgrade head --sql` validation. Cutover + runbook: `backend/alembic/README.md` |
 
 **Exit criteria:** All six items deployed to staging, validated, then production. Zero P0 items from the Top-10 remain open.
 
@@ -102,16 +102,16 @@ Before the first public paying user, every P0 must be ✅. Sign-off required by 
 
 ### Engineering
 
-- [ ] `min_machines_running ≥ 1` in fly.toml
-- [ ] Worker process separate from API; both always-on
-- [ ] DB health check runs on boot; boot fails on DB outage
-- [ ] Stripe webhook idempotent with `stripe_events` table
-- [ ] Security-headers middleware deployed
-- [ ] Rate limiter backed by Redis
+- [x] `min_machines_running ≥ 1` in fly.toml
+- [x] Worker process separate from API; both always-on
+- [x] DB health check runs on boot; boot fails on DB outage
+- [x] Stripe webhook idempotent with `stripe_events` table
+- [x] Security-headers middleware deployed
+- [x] Rate limiter backed by Redis
 - [ ] Refresh token + revocation live
 - [ ] RLS on every table in `public` schema
 - [ ] WebSocket fan-out works across ≥2 machines (load-tested)
-- [ ] Alembic migrations adopted; duplicate prefixes resolved
+- [x] Alembic migrations adopted; duplicate prefixes resolved
 - [ ] All critical indexes applied
 - [ ] Sentry DSN set in production; test error captured
 - [ ] `/metrics` live + Grafana dashboard with 5 key gauges

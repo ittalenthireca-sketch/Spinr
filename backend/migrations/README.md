@@ -64,14 +64,24 @@ INSERT INTO schema_migrations (filename, checksum) VALUES
 The sha256 of each file is printed by the runner's `--status` output;
 copy those values into the bootstrap `INSERT`.
 
-## Follow-up
+## New schema changes go to Alembic
 
-Full Alembic adoption (down-revisions, autogenerate, branch
-resolution) is tracked as **P1 work item 0.6** in
-`docs/audit/production-readiness-2026-04/09_ROADMAP_CHECKLIST.md`.
-The current runner is deliberately small — it solves the P0 concern
-(deterministic ordering + provenance) without introducing a new
-framework.
+As of 2026-04-14, **this directory is frozen**. The files here remain
+the source of truth for the legacy schema and will keep being applied
+by the runner on fresh databases, but new schema changes MUST be
+written as Alembic revisions under `backend/alembic/versions/`.
+
+The split is deliberate:
+
+* The legacy `.sql` files are already applied in every long-running
+  environment. Re-authoring them as Alembic revisions would either
+  diverge from reality or fail to apply idempotently.
+* Alembic gives us down-revisions, branch resolution, and `upgrade --sql`
+  offline SQL emission (now wired into CI).
+
+See `backend/alembic/README.md` for the day-to-day workflow and the
+one-time `alembic stamp 0001_baseline` step operators run on every
+existing environment.
 
 ## Historical notes
 

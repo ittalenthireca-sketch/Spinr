@@ -73,6 +73,23 @@ jobs:
         run: |
           python -c "import worker; assert callable(worker.main), 'worker.main must exist'"
 
+      - name: Validate Alembic migration chain
+        working-directory: backend
+        env:
+          # Offline mode — alembic doesn't connect, but env.py still
+          # requires DATABASE_URL to be set. A bogus URL is fine.
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/does_not_exist
+        # `alembic history` parses every revision file (catches
+        # SyntaxError and broken down_revision chains).
+        # `alembic upgrade head --sql` renders the full chain to SQL
+        # without a live DB connection — catches revisions that try
+        # to import live-DB state at module load time.
+        # See backend/alembic/README.md for the full workflow.
+        run: |
+          alembic history
+          alembic upgrade head --sql > /tmp/alembic-head.sql
+          echo "Emitted $(wc -l < /tmp/alembic-head.sql) lines of SQL for the alembic chain."
+
       - name: Run backend tests
         working-directory: backend
         env:
