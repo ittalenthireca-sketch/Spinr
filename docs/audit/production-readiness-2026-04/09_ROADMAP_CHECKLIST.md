@@ -11,14 +11,14 @@
 
 **Goal:** Remove every defect that silently halts critical flows or allows data loss.
 
-| # | Item | Doc | Owner |
-|---|---|---|---|
-| 0.1 | Set `min_machines_running = 1` + split worker process | D1 / B8 | DevOps + Backend |
-| 0.2 | Fix dead code in `core/lifespan.py` (add real DB health check) | B1 | Backend |
-| 0.3 | Add Stripe webhook idempotency (`stripe_events` table) | B2 | Backend |
-| 0.4 | Add security-headers middleware | S1 | Backend |
-| 0.5 | Swap in-memory rate limiter → Redis (Upstash) | S2 / P1 | Backend + DevOps |
-| 0.6 | Fix duplicate migration prefixes + bootstrap Alembic | B4 | Backend |
+| # | Item | Doc | Owner | Status |
+|---|---|---|---|---|
+| 0.1 | Set `min_machines_running = 1` + split worker process | D1 / B8 | DevOps + Backend | 🟡 partial — `min_machines_running=1` set in `fly.toml:21`; worker split pending |
+| 0.2 | Fix dead code in `core/lifespan.py` (add real DB health check) | B1 | Backend | 🟡 partial — boot-time DB probe in `core/lifespan.py:37`; `/health` endpoint is still a stub |
+| 0.3 | Add Stripe webhook idempotency (`stripe_events` table) | B2 | Backend | ✅ done — `routes/webhooks.py:67-88` calls `claim_stripe_event` backed by `migrations/22_stripe_events.sql` |
+| 0.4 | Add security-headers middleware | S1 | Backend | ✅ done — `SecurityHeadersMiddleware` in `core/middleware.py:11-78` (CSP, HSTS, XFO, Referrer-Policy, Permissions-Policy) |
+| 0.5 | Swap in-memory rate limiter → Redis (Upstash) | S2 / P1 | Backend + DevOps | ✅ done — `utils/rate_limiter.py` uses slowapi + Redis when `RATE_LIMIT_REDIS_URL` is set; production fails fast if unset |
+| 0.6 | Fix duplicate migration prefixes + bootstrap Alembic | B4 | Backend | 🔴 not started — no `alembic/` dir; raw SQL files `01_`..`26_` (no prefix collisions found) |
 
 **Exit criteria:** All six items deployed to staging, validated, then production. Zero P0 items from the Top-10 remain open.
 
