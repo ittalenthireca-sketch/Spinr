@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '@shared/store/authStore';
-import api, { setInMemoryToken } from '@shared/api/client';
+import api from '@shared/api/client';
 import SpinrConfig from '@shared/config/spinr.config';
 import CustomAlert from '@shared/components/CustomAlert';
 import { useLanguageStore } from '../store/languageStore';
@@ -24,21 +24,10 @@ import { useLanguageStore } from '../store/languageStore';
 const THEME = SpinrConfig.theme.colors;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Platform-safe token storage
-const storage = {
-  async setItem(key: string, value: string) {
-    try {
-      if (Platform.OS === 'web') {
-        localStorage.setItem(key, value);
-      } else {
-        const SecureStore = require('expo-secure-store');
-        await SecureStore.setItemAsync(key, value);
-      }
-    } catch (e) {
-      console.log('[Auth] Storage setItem FAILED:', e);
-    }
-  },
-};
+// Token persistence (access token + refresh token + expiry) is handled
+// by useAuthStore.applyAuthResponse().  Do not re-implement the writes
+// here — it's how the refresh-token wiring stays consistent across
+// rider-app, driver-app, and frontend/.
 
 export default function OtpScreen() {
   const router = useRouter();
@@ -148,20 +137,15 @@ export default function OtpScreen() {
           phone: phoneNumber,
           code: code,
         });
-        const { token, user: userData } = response.data;
-        if (token) {
-          setInMemoryToken(token);
-          await storage.setItem('auth_token', token);
-          if (userData) {
-            useAuthStore.setState({
-              user: userData,
-              token: token,
-              isInitialized: true,
-              isLoading: false,
-            });
-          } else {
-            await initialize();
-          }
+        // applyAuthResponse persists the access token, refresh token,
+        // and expiry into SecureStore / zustand in one step.  This is
+        // the single source of truth for capturing /auth/verify-otp
+        // output; do not re-implement any of the three writes inline.
+        await useAuthStore.getState().applyAuthResponse(response.data);
+        if (response.data?.user) {
+          useAuthStore.setState({ isInitialized: true, isLoading: false });
+        } else {
+          await initialize();
         }
       } else {
         await verifyOTP(verificationId!, code);

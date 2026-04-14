@@ -26,16 +26,18 @@
 
 ### Phase 1 — "Identity & data integrity" (Week 2, ~6 eng-days)
 
-| # | Item | Doc |
-|---|---|---|
-| 1.1 | Refresh token + access-token rotation; revocation list | S3 |
-| 1.2 | Complete RLS coverage (20+ tables) | S4 |
-| 1.3 | Migrate to Supavisor pooled Postgres endpoint | B7 |
-| 1.4 | Add critical indexes (7-query list) | P4 |
-| 1.5 | Move Stripe webhook processing to async queue | P7 |
-| 1.6 | Deep health endpoint + `bg_task_heartbeat` | B9 / T15 |
+| # | Item | Doc | Status |
+|---|---|---|---|
+| 1.1 | Refresh token + access-token rotation; revocation list | S3 | ✅ done — backend: `refresh_tokens` table + `users.token_version` (`migrations/25_refresh_tokens_and_token_version.sql`); `POST /auth/refresh` + `POST /auth/logout` + `POST /auth/logout-all` in `routes/auth.py`; `token_version` gate in `dependencies.get_current_user`. Mobile: `useAuthStore.applyAuthResponse` + `refreshAccessToken` (`shared/store/authStore.ts`); on-401 single-flight refresh + retry in `shared/api/client.ts:withRefreshRetry`. Follow-up to drop `ACCESS_TOKEN_TTL_DAYS` from 30→1-7 after mobile rollout lands (tracked in `core/config.py:38-43`). |
+| 1.2 | Complete RLS coverage (20+ tables) | S4 | 🔴 not started |
+| 1.3 | Migrate to Supavisor pooled Postgres endpoint | B7 | 🔴 not started |
+| 1.4 | Add critical indexes (7-query list) | P4 | 🔴 not started |
+| 1.5 | Move Stripe webhook processing to async queue | P7 | 🔴 not started |
+| 1.6 | Deep health endpoint + `bg_task_heartbeat` | B9 / T15 | 🟡 partial — `GET /health/deep` landed (`routes/main.py`); `bg_task_heartbeat` still pending |
 
 **Exit criteria:** RLS audit SQL returns zero tables without policies. Refresh-token flow live behind a feature flag.
+
+**1.1 rollout sequence:** the mobile-client side of refresh rotation is shipped in the app binaries (rider-app, driver-app); legacy `frontend/` and `admin-dashboard/` still need the same wiring before access-token TTL can be shortened. See "Known follow-ups" below.
 
 ---
 
@@ -108,7 +110,7 @@ Before the first public paying user, every P0 must be ✅. Sign-off required by 
 - [x] Stripe webhook idempotent with `stripe_events` table
 - [x] Security-headers middleware deployed
 - [x] Rate limiter backed by Redis
-- [ ] Refresh token + revocation live
+- [x] Refresh token + revocation live
 - [ ] RLS on every table in `public` schema
 - [ ] WebSocket fan-out works across ≥2 machines (load-tested)
 - [x] Alembic migrations adopted; duplicate prefixes resolved
