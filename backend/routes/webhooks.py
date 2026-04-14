@@ -1,17 +1,12 @@
 from fastapi import APIRouter, HTTPException, Request
 
 try:
-    from ..db import db
-    from ..db_supabase import claim_stripe_event, mark_stripe_event_processed
-    from ..features import send_push_notification
+    from ..db_supabase import claim_stripe_event
     from ..settings_loader import get_app_settings
 except ImportError:
-    from db import db
-    from db_supabase import claim_stripe_event, mark_stripe_event_processed
-    from features import send_push_notification
+    from db_supabase import claim_stripe_event
     from settings_loader import get_app_settings
 import logging
-from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 # IMPORTANT: This router does NOT have a /api/ prefix in the original server.py
@@ -22,9 +17,40 @@ logger = logging.getLogger(__name__)
 api_router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 
 
+# ============================================================
+# Phase 1.5 of the production-readiness audit (P1-P7):
+#
+# This handler used to verify + persist + DISPATCH inline, which put
+# Stripe's 20-second retry deadline in the hands of FCM/supabase.
+# Now the HTTP path is minimal:
+#
+#   1. Verify signature.
+#   2. Persist the raw event into `stripe_events` (migration 22 —
+#      PK on event_id gives us idempotency).
+#   3. Return 200 immediately.
+#
+# Business-logic side effects (ride payment status updates, push
+# notifications, Spinr Pass activation) run asynchronously on the
+# worker process via `utils.stripe_worker` which polls
+# `stripe_events WHERE processed_at IS NULL` and calls
+# `utils.stripe_dispatcher.dispatch_stripe_event` for each row.
+#
+# Failure modes:
+#   * Signature invalid → 400, Stripe treats as client error, no retry.
+#   * Persistence fails → 500, Stripe retries (event stays out of DB).
+#   * Dispatch fails    → not our problem here — the worker records
+#                          last_error + schedules the next retry.
+# ============================================================
+
+
 @api_router.post("/stripe")
 async def stripe_webhook(request: Request):
-    """Handle Stripe webhook events for server-side payment confirmation."""
+    """Handle Stripe webhook events: verify signature, persist, return 200.
+
+    Business-logic dispatch is handled asynchronously by the worker
+    process; this endpoint must remain fast (Stripe retries on any reply
+    taking >20s) so we do NOT run side effects here.
+    """
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 
@@ -56,7 +82,6 @@ async def stripe_webhook(request: Request):
 
     event_id = event.get("id", "")
     event_type = event.get("type", "")
-    data_object = event.get("data", {}).get("object", {})
 
     if not event_id:
         # Should never happen for real Stripe events, but guard anyway —
@@ -64,7 +89,7 @@ async def stripe_webhook(request: Request):
         logger.error("Stripe webhook event missing id — cannot dedup")
         raise HTTPException(status_code=400, detail="Missing event id")
 
-    # ── Idempotency gate ─────────────────────────────────────────────
+    # ── Idempotent persistence ─────────────────────────────────────────
     # Stripe retries every event (network blip, >20s handler, any non-2xx)
     # so we MUST treat a replay of the same event.id as a no-op. The
     # stripe_events table (migration 22) has event_id as PRIMARY KEY;
@@ -87,96 +112,8 @@ async def stripe_webhook(request: Request):
     if not is_new:
         return {"received": True, "duplicate": True, "event_id": event_id}
 
-    # ── Dispatch ─────────────────────────────────────────────────────
-    # Any exception raised below propagates as 5xx, leaving processed_at
-    # NULL so either (a) Stripe retries, or (b) the nightly reconciliation
-    # job replays the event from the persisted payload.
-    if event_type == "payment_intent.succeeded":
-        ride_id = data_object.get("metadata", {}).get("ride_id")
-        user_id = data_object.get("metadata", {}).get("user_id")
-        payment_intent_id = data_object.get("id")
-
-        if ride_id:
-            await db.rides.update_one(
-                {"id": ride_id},
-                {
-                    "$set": {
-                        "payment_status": "paid",
-                        "payment_intent_id": payment_intent_id,
-                        "paid_at": datetime.now(timezone.utc),
-                    }
-                },
-            )
-            logger.info(f"Payment confirmed via webhook for ride {ride_id}")
-
-        if user_id:
-            await send_push_notification(
-                user_id,
-                "Payment Confirmed ✅",
-                "Your payment has been processed successfully.",
-                {"type": "payment_confirmed", "ride_id": ride_id or ""},
-            )
-
-    elif event_type == "payment_intent.payment_failed":
-        ride_id = data_object.get("metadata", {}).get("ride_id")
-        user_id = data_object.get("metadata", {}).get("user_id")
-        payment_intent_id = data_object.get("id")
-        failure_message = data_object.get("last_payment_error", {}).get("message", "Payment failed")
-
-        if ride_id:
-            await db.rides.update_one(
-                {"id": ride_id},
-                {
-                    "$set": {
-                        "payment_status": "failed",
-                        "payment_intent_id": payment_intent_id,
-                        "payment_failure_reason": failure_message,
-                    }
-                },
-            )
-            logger.warning(f"Payment failed for ride {ride_id}: {failure_message}")
-
-        if user_id:
-            await send_push_notification(
-                user_id,
-                "Payment Failed ❌",
-                f"Your payment could not be processed: {failure_message}",
-                {"type": "payment_failed", "ride_id": ride_id or ""},
-            )
-
-    elif event_type == "checkout.session.completed":
-        # ── Spinr Pass subscription payment confirmed ──────────
-        # The /drivers/subscription/subscribe endpoint creates a pending
-        # subscription row and a Stripe Checkout Session with the
-        # subscription_id in the metadata. This webhook fires after the
-        # driver completes payment — we activate the subscription here.
-        metadata = data_object.get("metadata", {})
-        subscription_id = metadata.get("subscription_id")
-        plan_id = metadata.get("plan_id")
-        driver_id = metadata.get("driver_id")
-
-        if subscription_id and data_object.get("payment_status") == "paid":
-            try:
-                from ..routes.drivers import _activate_subscription  # type: ignore
-            except ImportError:
-                from routes.drivers import _activate_subscription  # type: ignore
-
-            await _activate_subscription(subscription_id, plan_id)
-            logger.info(
-                f"[WEBHOOK] Spinr Pass activated via checkout.session.completed: "
-                f"subscription={subscription_id} driver={driver_id} plan={plan_id}"
-            )
-        else:
-            logger.info(
-                f"[WEBHOOK] checkout.session.completed but payment not yet paid: "
-                f"status={data_object.get('payment_status')} subscription={subscription_id}"
-            )
-
-    else:
-        logger.info(f"Unhandled Stripe event type: {event_type}")
-
-    # Success — stamp processed_at. Non-fatal if this fails (we've
-    # already finished the side effects, and Stripe won't retry a 2xx).
-    await mark_stripe_event_processed(event_id)
-
-    return {"received": True, "event_id": event_id}
+    # Dispatch happens asynchronously on the worker process — see
+    # utils/stripe_worker.py. We return 200 immediately so Stripe
+    # doesn't retry while the side effects run out-of-band.
+    logger.info(f"[webhook] enqueued stripe event {event_id} (type={event_type})")
+    return {"received": True, "event_id": event_id, "queued": True}

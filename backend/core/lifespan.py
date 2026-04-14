@@ -160,6 +160,18 @@ async def lifespan(app: FastAPI):
             _spawn("document_expiry (12h)", document_expiry_loop)
         except Exception as e:
             logger.warning(f"Failed to import document expiry checker: {e}")
+
+        # Stripe event queue drainer (Phase 1.5) — the webhook handler
+        # only persists events and returns 200; this loop runs the
+        # business-logic dispatch out-of-band. Registered here for
+        # legacy single-process deploys; on Fly the dedicated worker
+        # process runs it instead (see worker.py).
+        try:
+            from utils.stripe_worker import stripe_event_worker_loop
+
+            _spawn("stripe_event_worker (5s)", stripe_event_worker_loop)
+        except Exception as e:
+            logger.warning(f"Failed to import stripe event worker: {e}")
     else:
         role = os.environ.get("FLY_PROCESS_GROUP", "unknown")
         logger.info(

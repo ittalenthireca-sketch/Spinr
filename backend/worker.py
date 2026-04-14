@@ -1,7 +1,7 @@
 """
 Spinr background worker entrypoint.
 
-Runs the five long-running loops that used to live inside the API
+Runs the long-running loops that used to live inside the API
 lifespan:
 
   * subscription expiry check (every 6h)
@@ -9,6 +9,7 @@ lifespan:
   * scheduled-ride dispatcher (every 60s)
   * payment retry (every 5 min)
   * document expiry alerts (every 12h)
+  * stripe event queue drainer (every 5s)      — Phase 1.5
 
 Background loops were previously spawned in core/lifespan.py, which
 meant they ran inside each API machine. When `auto_stop_machines`
@@ -113,6 +114,18 @@ async def _run_all_loops() -> None:
         _spawn("document_expiry (12h)", document_expiry_loop)
     except Exception as e:
         logger.warning(f"Worker: failed to import document expiry checker: {e}")
+
+    # Phase 1.5 of the production-readiness audit (P1-P7): the Stripe
+    # webhook handler now only persists events into stripe_events and
+    # returns 200 immediately. This loop drains that queue (polling
+    # every 5s) and runs the business-logic dispatch out-of-band so
+    # Stripe's 20s retry deadline is never a concern.
+    try:
+        from utils.stripe_worker import stripe_event_worker_loop
+
+        _spawn("stripe_event_worker (5s)", stripe_event_worker_loop)
+    except Exception as e:
+        logger.warning(f"Worker: failed to import stripe event worker: {e}")
 
     logger.info(f"Worker: {len(tasks)} background tasks running; waiting for shutdown signal")
 

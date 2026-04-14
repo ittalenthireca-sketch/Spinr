@@ -1,6 +1,6 @@
 import asyncio
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -1107,3 +1107,97 @@ async def mark_stripe_event_processed(event_id: str) -> None:
         await run_sync(_fn)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to stamp processed_at on stripe event {event_id}: {e}")
+
+
+async def fetch_unprocessed_stripe_events(limit: int = 10) -> list[Dict[str, Any]]:
+    """Return up to ``limit`` Stripe events ready to be (re-)dispatched.
+
+    "Ready" = ``processed_at IS NULL`` AND (``next_attempt_at IS NULL``
+    OR ``next_attempt_at <= now()``). The ordering is
+    ``received_at ASC`` so older events drain first — this preserves the
+    logical "accepted a payment then failed the follow-up" ordering
+    callers may depend on.
+
+    Fields returned: event_id, event_type, payload, attempt_count.
+
+    Used by ``utils.stripe_worker`` on the worker process. A NULL return
+    is the steady state when the queue is empty.
+    """
+    if not supabase:
+        return []
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    def _fn() -> list[Dict[str, Any]]:
+        # Two separate queries OR'd in the client: PostgREST has no first-
+        # class "col IS NULL OR col <= X" predicate, so we union the two
+        # partitions explicitly.  Bounded by ``limit`` on each side to
+        # cap total fan-in at 2*limit in the worst case; the worker
+        # further slices down after sort.
+        never_tried = (
+            supabase.table("stripe_events")
+            .select("event_id,event_type,payload,attempt_count,received_at")
+            .is_("processed_at", "null")
+            .is_("next_attempt_at", "null")
+            .order("received_at", desc=False)
+            .limit(limit)
+            .execute()
+        )
+        due_retry = (
+            supabase.table("stripe_events")
+            .select("event_id,event_type,payload,attempt_count,received_at")
+            .is_("processed_at", "null")
+            .lte("next_attempt_at", now_iso)
+            .order("received_at", desc=False)
+            .limit(limit)
+            .execute()
+        )
+        rows = list(never_tried.data or []) + list(due_retry.data or [])
+        # Dedup in case a row races between the two queries.
+        seen: set[str] = set()
+        deduped: list[Dict[str, Any]] = []
+        for r in rows:
+            eid = r.get("event_id")
+            if eid and eid not in seen:
+                seen.add(eid)
+                deduped.append(r)
+        deduped.sort(key=lambda r: r.get("received_at") or "")
+        return deduped[:limit]
+
+    try:
+        return await run_sync(_fn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"fetch_unprocessed_stripe_events failed: {e}")
+        return []
+
+
+async def mark_stripe_event_failed(event_id: str, error: str, attempt_count: int) -> None:
+    """Record a dispatch failure and schedule the next retry.
+
+    Exponential backoff: 30s, 1m, 2m, 4m, 8m, 16m, 32m, capped at 1h.
+    After ~10 attempts, ``next_attempt_at`` stays capped — operators
+    should inspect the row and either fix the root cause or manually
+    stamp ``processed_at`` to drop it off the queue.
+    """
+    if not supabase:
+        return
+
+    # Cap the backoff at 60 minutes so stuck events don't fall into a
+    # week-long retry hole — surface them in the next hour and operators
+    # can intervene if needed.
+    backoff_seconds = min(30 * (2 ** max(0, attempt_count)), 3600)
+    next_attempt = datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
+
+    def _fn():
+        supabase.table("stripe_events").update(
+            {
+                "attempt_count": attempt_count + 1,
+                "last_error": (error or "")[:2000],  # hard cap; avoid OOM on jumbo tracebacks
+                "next_attempt_at": next_attempt.isoformat(),
+            }
+        ).eq("event_id", event_id).execute()
+
+    try:
+        await run_sync(_fn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record stripe event failure for {event_id}: {e}")
