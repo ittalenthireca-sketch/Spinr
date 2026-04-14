@@ -1,5 +1,8 @@
 # ── Build stage ──────────────────────────────────────────────────────────────
-FROM python:3.12.9-slim AS builder
+# Use rolling 3.12-slim tag so base image auto-picks up the latest debian
+# security patches. Trivy runs with `ignore-unfixed: true`, so a pinned patch
+# tag silently accumulates fixed CVEs until it trips the image scanner.
+FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
@@ -14,7 +17,7 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM python:3.12.9-slim AS runtime
+FROM python:3.12-slim AS runtime
 
 # ── Security: run as non-root ──────────────────────────────────────────────────
 RUN groupadd --gid 1001 spinr \
