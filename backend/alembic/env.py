@@ -22,7 +22,6 @@ Design notes
 
 from __future__ import annotations
 
-import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
@@ -41,20 +40,31 @@ target_metadata = None
 
 
 def _resolve_database_url() -> str:
-    """Pull DATABASE_URL from the environment.
+    """Pull DATABASE_URL from the environment and validate pooler usage.
 
     We deliberately require the env var rather than falling back to a
     baked-in default: anything that silently connects to a dev DB is a
     foot-gun waiting to happen in CI / production.
+
+    Delegates to ``backend/scripts/db_url.py`` so Alembic and
+    ``run_migrations.py`` enforce identical Supavisor-pooler rules. The
+    validator hard-errors if the URL points at the non-pooled direct
+    cluster endpoint (``db.<ref>.supabase.co``) and prints a warning if
+    migrations are being run against the transaction-mode port (6543)
+    where session-mode (5432) is the safer default.
     """
-    url = os.environ.get("DATABASE_URL", "").strip()
-    if not url:
-        raise RuntimeError(
-            "DATABASE_URL is not set. Export the Postgres URL "
-            "(e.g. the Supabase pooler URL with the service role password) "
-            "before running alembic."
-        )
-    return url
+    # alembic runs from the backend/ directory; sibling package import
+    # works when invoked via ``alembic`` or ``python -m alembic``.
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _backend_dir = _Path(__file__).resolve().parent.parent
+    if str(_backend_dir) not in _sys.path:
+        _sys.path.insert(0, str(_backend_dir))
+
+    from scripts.db_url import resolve_and_validate_database_url
+
+    return resolve_and_validate_database_url()
 
 
 def run_migrations_offline() -> None:

@@ -28,7 +28,11 @@ backend. Resolved from the production-readiness audit finding P0-B4
 Use the runner in `backend/scripts/run_migrations.py`:
 
 ```bash
-export DATABASE_URL='postgres://postgres.<ref>:<service-role-pw>@aws-0-<region>.pooler.supabase.com:6543/postgres'
+# Supavisor session-mode pooler (port 5432 on the pooler host) is the
+# recommended default — the runner rejects the direct cluster endpoint
+# (db.<ref>.supabase.co) and warns if you use the transaction-mode
+# port (6543). Rationale: backend/scripts/db_url.py.
+export DATABASE_URL='postgres://postgres.<ref>:<service-role-pw>@aws-0-<region>.pooler.supabase.com:5432/postgres'
 
 # See what's pending.
 python -m backend.scripts.run_migrations --status

@@ -43,7 +43,10 @@ an existing project" pattern:
 ### Prerequisites
 
 ```bash
-export DATABASE_URL='postgres://postgres.<ref>:<service-role-pw>@aws-0-<region>.pooler.supabase.com:6543/postgres'
+# Supavisor session-mode pooler (port 5432 on the pooler host).
+# This is the recommended default for migrations — see "Pooler choice"
+# below for why 5432 beats 6543 here.
+export DATABASE_URL='postgres://postgres.<ref>:<service-role-pw>@aws-0-<region>.pooler.supabase.com:5432/postgres'
 cd backend/
 ```
 
@@ -52,6 +55,21 @@ pulls it from `DATABASE_URL` so CI, prod, and local dev all share
 one knob. The env var must be set for every alembic command below
 (including `alembic history`, which reads script files, because
 `env.py` reads the env var unconditionally at the top).
+
+### Pooler choice (Phase 1.3 of the audit)
+
+`env.py` delegates URL resolution to [`backend/scripts/db_url.py`](../scripts/db_url.py)
+which enforces Supavisor-pooler usage:
+
+| URL shape | Behaviour |
+|---|---|
+| `aws-0-<region>.pooler.supabase.com:5432` | ✅ session mode — recommended default for migrations (prepared statements, session variables, LISTEN/NOTIFY all work). |
+| `aws-0-<region>.pooler.supabase.com:6543` | ⚠️ transaction mode — runs but prints a warning. Prepared statements are disabled, so you may hit `prepared statement does not exist` on some SQLAlchemy patterns. Fine for hand-authored DDL. |
+| `db.<project-ref>.supabase.co:5432`       | ❌ direct cluster (no pooling) — hard rejected. Override with `SPINR_ALLOW_DIRECT_DATABASE_URL=1` only for a one-off ops task that needs something the pooler can't give you. |
+
+The application runtime does NOT read `DATABASE_URL` — it talks to
+Postgres over PostgREST (supabase-py, HTTPS) — so the pooler choice
+affects only the migration path. Worker and API processes are unchanged.
 
 ### Creating a new revision
 
