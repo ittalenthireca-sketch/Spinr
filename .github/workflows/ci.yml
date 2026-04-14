@@ -82,12 +82,19 @@ jobs:
           flags: backend
           name: backend-coverage
 
-  # Frontend (Rider App) Tests
+  # [DEPRECATED] frontend/ legacy app — kept so downstream jobs that list
+  # `needs: [frontend-test]` continue to pass while the migration settles.
+  # Source of truth is now rider-app/. Remove this job once deploy-frontend
+  # is confirmed stable from rider-app (SPR-01, task 1b). [SPR-01]
   frontend-test:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Deprecation notice
+        run: |
+          echo "::warning::frontend/ is DEPRECATED (SPR-01/D-003). Web builds now come from rider-app/. This job will be removed in SPR-02."
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -308,10 +315,13 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
-  # Deploy Frontend
+  # Deploy Rider Web App (Expo web export from rider-app/) [SPR-01/D-003/D-004]
+  # Previously deployed from frontend/ (deprecated). Now builds from rider-app/
+  # which is the canonical, feature-complete rider app with full web support.
+  # native-only packages (react-native-maps) are stubbed via metro.config.js.
   deploy-frontend:
     runs-on: ubuntu-latest
-    needs: [frontend-test]
+    needs: [rider-app-test]
     if: github.ref == 'refs/heads/main'
 
     steps:
@@ -322,14 +332,23 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Cache node modules
+        uses: actions/cache@v5
+        with:
+          path: rider-app/node_modules
+          key: ${{ runner.os }}-rider-node-${{ hashFiles('rider-app/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rider-node-
+
       - name: Install dependencies
-        working-directory: frontend
+        working-directory: rider-app
         run: yarn install --frozen-lockfile
 
-      - name: Build for production
-        working-directory: frontend
+      - name: Build for production (web)
+        working-directory: rider-app
         env:
-          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_BACKEND_URL: ${{ secrets.EXPO_PUBLIC_BACKEND_URL }}
+          EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: ${{ secrets.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY }}
         run: npx expo export --platform web
 
       - name: Deploy to Vercel
@@ -338,7 +357,7 @@ jobs:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}
-          working-directory: frontend
+          working-directory: rider-app
 
   # Deploy Admin Dashboard
   deploy-admin:
