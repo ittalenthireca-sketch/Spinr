@@ -31,7 +31,7 @@
 | 1.1 | Refresh token + access-token rotation; revocation list | S3 | ✅ done — backend: `refresh_tokens` table + `users.token_version` (`migrations/25_refresh_tokens_and_token_version.sql`); `POST /auth/refresh` + `POST /auth/logout` + `POST /auth/logout-all` in `routes/auth.py`; `token_version` gate in `dependencies.get_current_user`. Mobile: `useAuthStore.applyAuthResponse` + `refreshAccessToken` (`shared/store/authStore.ts`); on-401 single-flight refresh + retry in `shared/api/client.ts:withRefreshRetry`. Follow-up to drop `ACCESS_TOKEN_TTL_DAYS` from 30→1-7 after mobile rollout lands (tracked in `core/config.py:38-43`). |
 | 1.2 | Complete RLS coverage (20+ tables) | S4 | ✅ done — alembic revision `0002_rls_policy_closure` (`backend/alembic/versions/20260414_0002_rls_policy_closure.py`) closes policy gap on 19 RLS-enabled tables: 9 owner-owned get `deny_all` + `select_own(<owner>::text = auth.uid()::text)`; 7 sensitive tables get `deny_all` only; 3 catalogue tables get `deny_all` + `public_read`. Audit script `backend/scripts/rls_audit.sql` + reviewer guide in `backend/alembic/README.md#rls-reviewer-guide`. Backend uses `SUPABASE_SERVICE_ROLE_KEY` (BYPASSRLS) so policies are pure defence-in-depth — no app-side changes required. |
 | 1.3 | Migrate to Supavisor pooled Postgres endpoint | B7 | ✅ done — `DATABASE_URL` now documented + validated against the Supavisor pooler. Shared validator `backend/scripts/db_url.py` hard-rejects the direct `db.<ref>.supabase.co` endpoint (override: `SPINR_ALLOW_DIRECT_DATABASE_URL=1`) and warns when migrations use transaction mode (`:6543`) instead of session mode (`:5432`). Wired into both `backend/scripts/run_migrations.py` and `backend/alembic/env.py` so the guard is consistent across both migration paths. Application runtime traffic is already PostgREST-only (supabase-py/HTTPS) so no app-side change required. Docs: `backend/.env.example` (DATABASE_URL block) + `backend/alembic/README.md#pooler-choice`. |
-| 1.4 | Add critical indexes (7-query list) | P4 | 🔴 not started |
+| 1.4 | Add critical indexes (7-query list) | P4 | ✅ done — alembic revision `0003_critical_indexes` (`backend/alembic/versions/20260414_0003_critical_indexes.py`) adds four net-new btree indexes built with `CREATE INDEX CONCURRENTLY` (no write stall): `idx_rides_area_status_active` (partial on active statuses, dispatcher queue), `idx_rides_driver_created`, `idx_rides_rider_created`, `idx_otp_records_phone_created`. The audit's remaining three queries map to tables that either don't exist in spinr (`payments`, `notifications`) or already have equivalent coverage (`driver_location_history.idx_dlh_ride`, `drivers.drivers_location_idx` GIST + `idx_drivers_available`) — rationale documented in the revision docstring. |
 | 1.5 | Move Stripe webhook processing to async queue | P7 | 🔴 not started |
 | 1.6 | Deep health endpoint + `bg_task_heartbeat` | B9 / T15 | 🟡 partial — `GET /health/deep` landed (`routes/main.py`); `bg_task_heartbeat` still pending |
 
@@ -114,7 +114,7 @@ Before the first public paying user, every P0 must be ✅. Sign-off required by 
 - [x] RLS on every table in `public` schema
 - [ ] WebSocket fan-out works across ≥2 machines (load-tested)
 - [x] Alembic migrations adopted; duplicate prefixes resolved
-- [ ] All critical indexes applied
+- [x] All critical indexes applied
 - [ ] Sentry DSN set in production; test error captured
 - [ ] `/metrics` live + Grafana dashboard with 5 key gauges
 - [ ] SLO doc published; alerts wired to PagerDuty
