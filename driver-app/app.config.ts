@@ -89,6 +89,20 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         '@react-native-firebase/messaging',
         '@react-native-firebase/crashlytics',
         '@react-native-firebase/app-check',
+        // Sentry sourcemap upload (Phase 2.2e / audit T1). Mirrors the
+        // rider-app config plugin — uploads JS + Hermes bytecode
+        // sourcemaps to Sentry on every EAS build. Env vars are set
+        // via `eas secret:create` (SENTRY_ORG, SENTRY_PROJECT,
+        // SENTRY_AUTH_TOKEN) so the plugin no-ops locally without any
+        // extra wiring.
+        [
+            '@sentry/react-native/expo',
+            {
+                organization: process.env.SENTRY_ORG,
+                project: process.env.SENTRY_PROJECT || 'spinr-driver',
+                url: 'https://sentry.io/',
+            },
+        ],
     ],
     experiments: {
         typedRoutes: true

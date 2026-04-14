@@ -229,10 +229,37 @@ Each secret lists:
 - **Format:** `https://<hash>@o<org>.ingest.sentry.io/<project>`.
 - **Consumed by:** backend `server.py`.
 
-### `SENTRY_DSN` per mobile app (optional)
+### `SENTRY_DSN` per mobile app (required in prod)
 
 - **Source:** same, create `spinr-rider` + `spinr-driver` projects.
-- **Consumed by:** rider + driver apps for crash reporting.
+- **Consumed by:** rider + driver apps for crash reporting. Passed at
+  build time via `EXPO_PUBLIC_SENTRY_DSN` (see `eas.json` per app).
+
+### `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` (EAS build machines)
+
+Required so `@sentry/react-native/expo` (the config plugin in
+`rider-app/app.config.ts` and `driver-app/app.config.ts`) can upload
+JS + Hermes bytecode sourcemaps on every EAS build. Without these,
+Sentry receives obfuscated JS stack frames that humans can't read.
+
+- **`SENTRY_AUTH_TOKEN`** — Sentry → User Settings → Auth Tokens →
+  create with `project:write` + `project:releases`. Store via
+  `eas secret:create --scope project --name SENTRY_AUTH_TOKEN`
+  on each of `rider-app` and `driver-app` Expo projects.
+- **`SENTRY_ORG`** — e.g. `spinr-io`; the Sentry organisation slug.
+- **`SENTRY_PROJECT`** — `spinr-rider` or `spinr-driver` (defaults
+  are set in the plugin config so this is only needed if you rename
+  the Sentry project).
+
+The plugin no-ops when `SENTRY_AUTH_TOKEN` is unset, so local
+`expo run:ios` / `expo start` don't require any of these.
+
+### `SENTRY_DSN` (backend worker)
+
+Same value as the backend API. Set as a Fly secret for the
+`worker` process group so the worker's lazy `init_sentry(role="worker")`
+picks it up at boot. Tag differentiation (`role=api` vs `role=worker`)
+happens inside `utils/sentry_init.py`.
 
 ---
 

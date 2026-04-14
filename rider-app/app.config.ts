@@ -90,6 +90,26 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         '@react-native-firebase/messaging',
         '@react-native-firebase/crashlytics',
         '@react-native-firebase/app-check',
+        // Sentry sourcemap upload (Phase 2.2e / audit T1). The config
+        // plugin runs at EAS build time, uploads JS + Hermes bytecode
+        // sourcemaps to Sentry, and injects a debug-id into the bundle
+        // so Sentry can symbolicate stack frames against the right
+        // release. Requires three env vars in the EAS build machine:
+        //   SENTRY_ORG          — Sentry organisation slug
+        //   SENTRY_PROJECT      — Sentry project slug (rider-app)
+        //   SENTRY_AUTH_TOKEN   — CLI auth token with project:write
+        // All three are set via `eas secret:create` so the plugin
+        // no-ops locally and in Expo Go without any extra wiring.
+        [
+            '@sentry/react-native/expo',
+            {
+                organization: process.env.SENTRY_ORG,
+                project: process.env.SENTRY_PROJECT || 'spinr-rider',
+                // urlPrefix is Sentry's default for RN; pinned here so
+                // a future SDK change doesn't silently break frame paths.
+                url: 'https://sentry.io/',
+            },
+        ],
     ],
     experiments: {
         typedRoutes: false
