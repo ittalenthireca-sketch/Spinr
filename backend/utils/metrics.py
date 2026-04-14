@@ -33,6 +33,9 @@ final auth story.
 
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime, timezone
+
 from loguru import logger
 from prometheus_client import Counter, Gauge, Histogram
 
@@ -160,3 +163,111 @@ def install_fastapi_instrumentator(app) -> None:
         should_gzip=True,
     )
     logger.info("Prometheus /metrics endpoint installed")
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Periodic gauge refresh (Phase 2.3c / audit T3)
+#
+# Some of the custom gauges above are snapshot-style — they don't have
+# a natural "event" to increment on, and computing them on every
+# Prometheus scrape would translate to a DB-query storm when multiple
+# scrapers hit us (Grafana + uptime checks + ad-hoc operators).
+# Instead we compute them on a fixed cadence (``REFRESH_INTERVAL``) and
+# the scrape simply reads the cached value.
+#
+# Runs on BOTH the API and worker process so whichever /metrics endpoint
+# an operator hits always has data. Duplicate writes to the same gauge
+# are harmless — the last writer wins and both processes see the same
+# DB state.
+# ────────────────────────────────────────────────────────────────────────
+
+# 30 seconds is a good balance between gauge staleness and DB load.
+# Prometheus' default scrape interval is 15s; at 30s refresh, the worst-
+# case gauge age at scrape time is 30s, which is well under the alerting
+# evaluation window (typically 2-5 minutes).
+REFRESH_INTERVAL_SECONDS = 30
+
+
+async def _refresh_periodic_gauges() -> None:
+    """One-shot refresh pass; called by ``metrics_refresh_loop``.
+
+    Exposed as a separate function so tests / ad-hoc scripts can trigger
+    a refresh without waiting 30s. All lookups are fail-soft — a single
+    failed read clears the gauge to 0 rather than propagating the error.
+    """
+    # Lazy import to avoid a circular import at module load time
+    # (db_supabase imports loguru which imports plenty of stdlib but
+    # nothing metric-related, yet if the worker's boot order changes
+    # we don't want metrics.py hoisting supabase).
+    try:
+        from db_supabase import (
+            count_active_rides_by_status,
+            count_unprocessed_stripe_events,
+            fetch_bg_task_heartbeats,
+        )
+    except Exception as e:  # pragma: no cover — module not importable in tests
+        logger.debug(f"metrics refresh: db_supabase unavailable ({e})")
+        return
+
+    # 1. Stripe queue depth
+    try:
+        depth = await count_unprocessed_stripe_events()
+        stripe_queue_depth.set(depth)
+    except Exception as e:
+        logger.debug(f"metrics refresh: stripe queue depth failed: {e}")
+
+    # 2. Active rides by status
+    try:
+        by_status = await count_active_rides_by_status()
+        for status, count in by_status.items():
+            active_rides.labels(status=status).set(count)
+    except Exception as e:
+        logger.debug(f"metrics refresh: active rides failed: {e}")
+
+    # 3. Background task heartbeat age + last status
+    try:
+        rows = await fetch_bg_task_heartbeats()
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            task_name = row.get("task_name")
+            if not task_name:
+                continue
+            last_run_at_raw = row.get("last_run_at")
+            age_seconds = 0.0
+            if last_run_at_raw:
+                try:
+                    # Supabase returns timestamptz as ISO-8601; handle
+                    # both "…Z" and "…+00:00" forms.
+                    last_run_at = datetime.fromisoformat(
+                        str(last_run_at_raw).replace("Z", "+00:00")
+                    )
+                    age_seconds = max(0.0, (now - last_run_at).total_seconds())
+                except Exception:
+                    age_seconds = 0.0
+            bg_task_heartbeat_age_seconds.labels(task_name=task_name).set(age_seconds)
+            status = (row.get("last_status") or "ok").lower()
+            bg_task_last_status.labels(task_name=task_name).set(0 if status == "ok" else 1)
+    except Exception as e:
+        logger.debug(f"metrics refresh: bg task heartbeats failed: {e}")
+
+
+async def metrics_refresh_loop() -> None:
+    """Long-running loop that refreshes snapshot gauges every 30s.
+
+    Spawned from both ``core/lifespan.py`` (API in single-process mode)
+    and ``worker.py`` (always-on worker machine). The two processes
+    refreshing independently means a worker outage doesn't blind us to
+    active_rides/stripe_queue_depth — the API keeps publishing them,
+    and vice versa.
+
+    Never raises — any exception is logged and the loop continues, so
+    a transient DB blip doesn't permanently detach us from our own
+    metrics.
+    """
+    logger.info(f"metrics_refresh_loop: starting (every {REFRESH_INTERVAL_SECONDS}s)")
+    while True:
+        try:
+            await _refresh_periodic_gauges()
+        except Exception as e:  # pragma: no cover — defensive
+            logger.warning(f"metrics_refresh_loop iteration failed: {e}")
+        await asyncio.sleep(REFRESH_INTERVAL_SECONDS)

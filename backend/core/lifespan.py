@@ -179,6 +179,20 @@ async def lifespan(app: FastAPI):
             f"they are owned by the dedicated worker process."
         )
 
+    # Phase 2.3c — metrics refresh always runs on the API process,
+    # regardless of role. The /metrics endpoint served by this process
+    # needs fresh snapshot gauges (stripe_queue_depth, active_rides,
+    # bg_task_heartbeat_age_seconds) even when the business-logic
+    # background loops live on the dedicated worker. The DB reads it
+    # performs are cheap (6 COUNT queries + one SELECT) and the worker
+    # runs its own copy of the same loop — both are idempotent.
+    try:
+        from utils.metrics import metrics_refresh_loop
+
+        _spawn("metrics_refresh (30s)", metrics_refresh_loop)
+    except Exception as e:
+        logger.warning(f"Failed to import metrics refresh loop: {e}")
+
     app.state.background_tasks = background_tasks
 
     # WebSocket pub/sub (audit P0-B3): before this, socket sends were

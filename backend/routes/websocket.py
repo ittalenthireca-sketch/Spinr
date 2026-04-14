@@ -111,7 +111,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
 
         # Register the connection with a server-controlled key to prevent impersonation
         connection_key = f"{client_type}_{user['id']}"
-        await manager.connect(websocket, connection_key)
+        await manager.connect(websocket, connection_key, role=client_type)
 
         # GAP FIX: Start heartbeat background task
         hb_task = asyncio.create_task(heartbeat_task(websocket, connection_key))

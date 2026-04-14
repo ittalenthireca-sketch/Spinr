@@ -1287,3 +1287,93 @@ async def fetch_bg_task_heartbeats() -> list[Dict[str, Any]]:
     except Exception as e:  # noqa: BLE001
         logger.warning(f"fetch_bg_task_heartbeats failed: {e}")
         return []
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Metrics helpers (Phase 2.3c / audit T3)
+#
+# Cheap aggregate queries feeding the Prometheus refresh loop in
+# ``utils.metrics.metrics_refresh_loop``. Pulled into db_supabase
+# instead of inlining into metrics.py so the SQL stays next to the
+# other supabase access helpers and the metrics module stays a pure
+# instrumentation surface.
+#
+# All helpers fail soft — a failed metric read must never bubble up
+# because the refresh loop is shared infra.
+# ────────────────────────────────────────────────────────────────────────
+
+
+async def count_unprocessed_stripe_events() -> int:
+    """Return the number of rows in ``stripe_events`` with ``processed_at IS NULL``.
+
+    Drives the ``spinr_stripe_queue_depth`` gauge. The queue is the
+    async buffer between Stripe's webhook POST and our business-logic
+    dispatcher; watching its depth is the single best signal for
+    "we're falling behind on payments" and is the basis for the SLO
+    alert in Phase 2.4.
+    """
+    if not supabase:
+        return 0
+
+    def _fn():
+        return (
+            supabase.table("stripe_events")
+            .select("event_id", count="exact")
+            .is_("processed_at", "null")
+            .limit(1)
+            .execute()
+        )
+
+    try:
+        resp = await run_sync(_fn)
+        return int(resp.count or 0)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"count_unprocessed_stripe_events failed: {e}")
+        return 0
+
+
+# Ride statuses we consider "active" for the active_rides gauge. Terminal
+# statuses (completed, cancelled, rejected) are deliberately excluded so
+# the gauge shows the dispatch-pipeline funnel rather than unbounded
+# historical counts.
+_ACTIVE_RIDE_STATUSES: tuple[str, ...] = (
+    "searching",
+    "driver_assigned",
+    "driver_accepted",
+    "driver_arrived",
+    "in_progress",
+    "pending_payment",
+)
+
+
+async def count_active_rides_by_status() -> Dict[str, int]:
+    """Return a ``{status: count}`` map for rides in non-terminal states.
+
+    Drives the ``spinr_active_rides`` gauge. One query per status is
+    simpler than a single GROUP BY (PostgREST doesn't natively support
+    GROUP BY) and keeps the per-query plan trivially indexed on
+    ``status``. Total fan-out: ~6 queries every metrics refresh
+    cycle, which at the 30s default cadence is negligible.
+    """
+    if not supabase:
+        return {}
+
+    out: Dict[str, int] = {}
+    for status in _ACTIVE_RIDE_STATUSES:
+
+        def _fn(_status: str = status):
+            return (
+                supabase.table("rides")
+                .select("id", count="exact")
+                .eq("status", _status)
+                .limit(1)
+                .execute()
+            )
+
+        try:
+            resp = await run_sync(_fn)
+            out[status] = int(resp.count or 0)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"count_active_rides_by_status({status}) failed: {e}")
+            out[status] = 0
+    return out

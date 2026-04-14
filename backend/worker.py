@@ -131,6 +131,16 @@ async def _run_all_loops() -> None:
     except Exception as e:
         logger.warning(f"Worker: failed to import stripe event worker: {e}")
 
+    # Phase 2.3c — periodic snapshot-gauge refresh so the worker's
+    # /metrics endpoint (exposed in 2.3d) has fresh stripe_queue_depth,
+    # active_rides, and bg_task_heartbeat values on every scrape.
+    try:
+        from utils.metrics import metrics_refresh_loop
+
+        _spawn("metrics_refresh (30s)", metrics_refresh_loop)
+    except Exception as e:
+        logger.warning(f"Worker: failed to import metrics refresh loop: {e}")
+
     logger.info(f"Worker: {len(tasks)} background tasks running; waiting for shutdown signal")
 
     # Block until a shutdown signal arrives. asyncio.Event is set by the
