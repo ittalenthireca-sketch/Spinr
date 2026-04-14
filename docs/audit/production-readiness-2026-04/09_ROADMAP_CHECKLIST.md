@@ -49,9 +49,9 @@
 | 2.2 | Sentry mandatory (backend + mobile + admin) + sourcemaps ✅ | T1 |
 | 2.3 | Prometheus `/metrics` + Grafana dashboard ✅ | T3 |
 | 2.4 | SLO doc + alert policy with burn rates ✅ | T2 |
-| 2.5 | Load test baseline (k6) | T8 |
-| 2.6 | Synthetic monitors (health + rider flow) | T9 |
-| 2.7 | Log aggregation (Loki/Datadog) | T10 |
+| 2.5 | Load test baseline (k6) ✅ | T8 |
+| 2.6 | Synthetic monitors (health + rider flow) ✅ | T9 |
+| 2.7 | Log aggregation (Loki/Datadog) ✅ | T10 |
 
 ---
 
@@ -115,9 +115,9 @@ Before the first public paying user, every P0 must be ✅. Sign-off required by 
 - [ ] WebSocket fan-out works across ≥2 machines (load-tested)
 - [x] Alembic migrations adopted; duplicate prefixes resolved
 - [x] All critical indexes applied
-- [ ] Sentry DSN set in production; test error captured
-- [ ] `/metrics` live + Grafana dashboard with 5 key gauges
-- [ ] SLO doc published; alerts wired to PagerDuty
+- [x] Sentry DSN set in production; test error captured
+- [x] `/metrics` live + Grafana dashboard with 5 key gauges
+- [x] SLO doc published; alerts wired to PagerDuty
 - [ ] Load test passed: 500 riders, 200 drivers, p95 <2s
 - [ ] Synthetic monitor for `/health` + rider flow green for 72h
 

@@ -6,10 +6,15 @@ from loguru import logger
 
 try:
     from core.config import settings
+    from core.logging_config import configure_logging
     from db_supabase import run_sync
 except ImportError:  # pragma: no cover - import style varies by entrypoint
     from ..core.config import settings  # type: ignore
+    from ..core.logging_config import configure_logging  # type: ignore
     from ..db_supabase import run_sync  # type: ignore
+
+# Configure structured logging before any other code emits a log line.
+configure_logging()
 
 from supabase_client import supabase
 

@@ -41,10 +41,16 @@ Health / liveness:
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
 import sys
 
 from loguru import logger
+
+# Configure JSON structured logging before any loop imports emit lines.
+os.environ.setdefault("APP_PROCESS", "worker")
+from core.logging_config import configure_logging  # noqa: E402
+configure_logging()
 
 
 async def _run_all_loops() -> None:

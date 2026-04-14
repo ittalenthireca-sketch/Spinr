@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     # Environment
     ENV: str = "development"
 
+    # Logging — optional override. configure_logging() picks a sensible
+    # default per-ENV (DEBUG for dev/staging, INFO for production).
+    # Set LOG_LEVEL=DEBUG in production to troubleshoot a live incident
+    # without a redeploy; remember to revert or the volume of output
+    # will saturate your log-drain budget.
+    LOG_LEVEL: Optional[str] = None
+
     # Observability — optional; Sentry only initialises when this is set
     sentry_dsn: Optional[str] = None
 
