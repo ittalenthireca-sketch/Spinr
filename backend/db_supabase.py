@@ -1377,3 +1377,122 @@ async def count_active_rides_by_status() -> Dict[str, int]:
             logger.warning(f"count_active_rides_by_status({status}) failed: {e}")
             out[status] = 0
     return out
+
+
+# ── Ride request idempotency ──────────────────────────────────────────
+# Backed by alembic 0007_ride_idempotency. Mirrors the
+# claim_stripe_event pattern: an insert-or-reject atomic "claim" step
+# followed by a separate "record the response" step once the ride is
+# successfully created. The lookup is scoped by (key, rider_id) so one
+# rider's collision can never expose another rider's ride snapshot.
+
+async def claim_ride_idempotency_key(
+    key: str, rider_id: str
+) -> tuple[bool, Optional[Dict[str, Any]]]:
+    """Atomically claim an idempotency key for this rider.
+
+    Returns:
+        (is_new, cached_response)
+          * (True, None)  — we inserted a fresh claim row; caller should
+                            proceed to create the ride and then call
+                            ``record_ride_idempotency_response``.
+          * (False, dict) — this key was seen before and the prior
+                            response snapshot is cached; caller should
+                            return it verbatim as a 200.
+          * (False, None) — this key was seen before but the prior
+                            request hasn't finished yet (still in
+                            flight). Caller should return 409 so the
+                            client can retry after a short delay.
+    """
+    if not supabase:
+        # Without Supabase we can't dedupe; fall back to "fresh" and
+        # rely on the client not retrying against a no-op backend.
+        return (True, None)
+
+    def _insert() -> tuple[bool, Optional[Dict[str, Any]]]:
+        try:
+            supabase.table("ride_idempotency_keys").insert(
+                {"key": key, "rider_id": rider_id}
+            ).execute()
+            return (True, None)
+        except Exception as e:  # noqa: BLE001
+            msg = str(e).lower()
+            if _PG_UNIQUE_VIOLATION not in msg and "duplicate" not in msg:
+                raise
+            # Existing row: look it up and return the cached response.
+            resp = (
+                supabase.table("ride_idempotency_keys")
+                .select("response")
+                .eq("key", key)
+                .eq("rider_id", rider_id)
+                .limit(1)
+                .execute()
+            )
+            rows = resp.data or []
+            if not rows:
+                return (False, None)
+            cached = rows[0].get("response")
+            return (False, cached)
+
+    return await run_sync(_insert)
+
+
+async def record_ride_idempotency_response(
+    key: str, rider_id: str, ride_id: str, response: Dict[str, Any]
+) -> None:
+    """Stamp the ride_id + response snapshot onto a previously-claimed key.
+
+    Best-effort: a write failure here is non-fatal. Worst case a client
+    retry with the same key returns a 409 (in-flight) instead of the
+    cached response, and the retry will land as a duplicate ride — which
+    is the exact failure mode this table exists to prevent, but would
+    require both a Supabase write outage AND a client retry inside the
+    same ~seconds window. Log loudly so we can spot it.
+    """
+    if not supabase:
+        return
+
+    snapshot = _serialize_for_api(response)
+
+    def _fn():
+        supabase.table("ride_idempotency_keys").update(
+            {"ride_id": ride_id, "response": snapshot}
+        ).eq("key", key).eq("rider_id", rider_id).execute()
+
+    try:
+        await run_sync(_fn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"Failed to record idempotency response for key={key[:8]}…: {e}"
+        )
+
+
+async def delete_expired_ride_idempotency_keys(older_than_hours: int = 24) -> int:
+    """Delete idempotency-key rows older than ``older_than_hours``.
+
+    Called by the nightly retention sweep. Returns the count deleted.
+    The rows are harmless to keep but grow without bound if we never
+    prune them, and they hold no data of ongoing value after a day.
+    """
+    if not supabase:
+        return 0
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+
+    def _fn():
+        return (
+            supabase.table("ride_idempotency_keys")
+            .delete()
+            .lt("created_at", cutoff.isoformat())
+            .execute()
+        )
+
+    try:
+        resp = await run_sync(_fn)
+        deleted = len(resp.data or [])
+        if deleted:
+            logger.info(f"Retention: deleted {deleted} expired ride idempotency keys")
+        return deleted
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"delete_expired_ride_idempotency_keys failed: {e}")
+        return 0

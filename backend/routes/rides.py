@@ -505,6 +505,36 @@ async def estimate_ride(request: RideEstimateRequest, current_user: dict = Depen
 async def create_ride(
     http_request: Request, request: CreateRideRequest, current_user: dict = Depends(get_current_user)
 ):
+    # ── Idempotency (Phase 4.4 / F2) ──────────────────────────────────
+    # Mobile clients mint a UUID per ride *attempt* and retry the POST
+    # with the same key on network failure. We dedupe here so a retry
+    # of an already-successful create returns the cached response
+    # instead of charging/dispatching the rider twice.
+    idempotency_key = http_request.headers.get("Idempotency-Key") or http_request.headers.get(
+        "X-Idempotency-Key"
+    )
+    if idempotency_key:
+        # Basic sanity: treat very long or empty keys as absent so a
+        # malformed client can't poison the table with garbage rows.
+        idempotency_key = idempotency_key.strip()
+        if not idempotency_key or len(idempotency_key) > 128:
+            idempotency_key = None
+
+    if idempotency_key:
+        is_new, cached = await db_supabase.claim_ride_idempotency_key(
+            idempotency_key, current_user["id"]
+        )
+        if not is_new:
+            if cached is not None:
+                # Prior request completed — replay its response.
+                return cached
+            # Prior request still in flight. Tell the client to retry
+            # after a brief delay rather than duplicate the work.
+            raise HTTPException(
+                status_code=409,
+                detail="A ride request with this idempotency key is still being processed. Retry shortly.",
+            )
+
     validate_ride_location(request.pickup_lat, request.pickup_lng, request.dropoff_lat, request.dropoff_lng)
 
     # Pre-ride payment method validation: ensure rider has a card on file
@@ -691,7 +721,21 @@ async def create_ride(
     if updated_ride and updated_ride.get("status") == "searching":
         asyncio.create_task(ride_search_timeout(ride.id))
 
-    return serialize_doc(updated_ride)
+    response_body = serialize_doc(updated_ride)
+
+    # Store the response on the idempotency row so any retry of the
+    # same attempt returns this verbatim instead of creating a
+    # duplicate ride. Best-effort; a write failure here is logged but
+    # does not fail the request (Phase 4.4 / F2).
+    if idempotency_key and response_body is not None:
+        try:
+            await db_supabase.record_ride_idempotency_response(
+                idempotency_key, current_user["id"], ride.id, response_body
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to record idempotency response for ride {ride.id}: {e}")
+
+    return response_body
 
 
 from fastapi import Request  # noqa: E402

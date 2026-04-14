@@ -44,6 +44,7 @@ _CHAT_MESSAGE_DAYS = 180
 _OTP_RECORD_HOURS = 24
 _PROCESSED_STRIPE_EVENT_DAYS = 90
 _EXPIRED_REFRESH_TOKEN_DAYS = 7
+_RIDE_IDEMPOTENCY_HOURS = 24
 
 BATCH_SIZE = 500
 LOOP_INTERVAL_SECONDS = 24 * 60 * 60   # run once per day
@@ -116,6 +117,16 @@ async def run_retention_pass(dry_run: bool = False) -> None:
         table="otp_records",
         column="created_at",
         cutoff=_cutoff(hours=_OTP_RECORD_HOURS),
+        dry_run=dry_run,
+    )
+
+    # -- Ride idempotency keys (24-hour TTL) ------------------------------
+    # Write-once from the rider client on every POST /rides attempt;
+    # no reason to retain past the client's retry window.
+    await _delete_batch(
+        table="ride_idempotency_keys",
+        column="created_at",
+        cutoff=_cutoff(hours=_RIDE_IDEMPOTENCY_HOURS),
         dry_run=dry_run,
     )
 
