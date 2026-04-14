@@ -1,0 +1,33 @@
+{
+    "nav": {
+        "dashboard": "Dashboard",
+        "drivers": "Drivers",
+        "rides": "Rides",
+        "earnings": "Earnings",
+        "disputes": "Disputes",
+        "settings": "Settings"
+    },
+    "actions": {
+        "approve": "Approve",
+        "reject": "Reject",
+        "save": "Save",
+        "cancel": "Cancel"
+    },
+    "table": {
+        "name": "Name",
+        "status": "Status",
+        "createdAt": "Created at",
+        "actions": "Actions"
+    },
+    "status": {
+        "pending": "Pending",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "suspended": "Suspended"
+    },
+    "errors": {
+        "required": "This field is required.",
+        "invalidEmail": "Please enter a valid email address.",
+        "loadFailed": "Failed to load data."
+    }
+}

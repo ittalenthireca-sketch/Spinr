@@ -1,0 +1,43 @@
+{
+    "common": {
+        "loading": "Loading...",
+        "cancel": "Cancel",
+        "confirm": "Confirm",
+        "back": "Back",
+        "retry": "Retry",
+        "close": "Close",
+        "ok": "OK"
+    },
+    "home": {
+        "whereTo": "Where to?",
+        "recentTrips": "Recent Trips",
+        "savedPlaces": "Saved Places",
+        "searchDestination": "Search destination"
+    },
+    "rideOptions": {
+        "standard": "Standard",
+        "premium": "Premium",
+        "pool": "Pool",
+        "surgeNotice": "Fares are higher due to increased demand.",
+        "estimatedArrival": "Est. arrival",
+        "chooseRide": "Choose a ride"
+    },
+    "payment": {
+        "addCard": "Add a card",
+        "paid": "Paid",
+        "failed": "Payment failed",
+        "paymentMethod": "Payment method",
+        "cashOption": "Cash"
+    },
+    "profile": {
+        "settings": "Settings",
+        "logout": "Log Out",
+        "language": "Language",
+        "help": "Help & Support",
+        "rateApp": "Rate the app"
+    },
+    "errors": {
+        "networkError": "Network error. Please check your connection.",
+        "unknown": "Something went wrong. Please try again."
+    }
+}

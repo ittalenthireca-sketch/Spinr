@@ -1,0 +1,33 @@
+{
+    "nav": {
+        "dashboard": "Tableau de bord",
+        "drivers": "Chauffeurs",
+        "rides": "Courses",
+        "earnings": "Revenus",
+        "disputes": "Litiges",
+        "settings": "Paramètres"
+    },
+    "actions": {
+        "approve": "Approuver",
+        "reject": "Refuser",
+        "save": "Enregistrer",
+        "cancel": "Annuler"
+    },
+    "table": {
+        "name": "Nom",
+        "status": "Statut",
+        "createdAt": "Créé le",
+        "actions": "Actions"
+    },
+    "status": {
+        "pending": "En attente",
+        "approved": "Approuvé",
+        "rejected": "Refusé",
+        "suspended": "Suspendu"
+    },
+    "errors": {
+        "required": "Ce champ est obligatoire.",
+        "invalidEmail": "Veuillez entrer un courriel valide.",
+        "loadFailed": "Échec du chargement des données."
+    }
+}
