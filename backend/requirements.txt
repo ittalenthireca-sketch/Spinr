@@ -250,6 +250,12 @@ propcache==0.4.1
     # via
     #   aiohttp
     #   yarl
+prometheus-client==0.21.0
+    # via
+    #   -r requirements.in
+    #   prometheus-fastapi-instrumentator
+prometheus-fastapi-instrumentator==7.0.2
+    # via -r requirements.in
 proto-plus==1.27.2
     # via
     #   google-ai-generativelanguage

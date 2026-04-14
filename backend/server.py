@@ -32,6 +32,7 @@ from routes.wallet import api_router as wallet_router
 from routes.webhooks import api_router as webhooks_router
 from routes.websocket import router as websocket_router
 from utils.error_handling import register_exception_handlers
+from utils.metrics import install_fastapi_instrumentator
 
 # Initialize Firebase
 init_firebase()
@@ -40,6 +41,11 @@ app = FastAPI(title="Spinr API", version="1.0.0", lifespan=lifespan)
 
 # Initialize middleware
 init_middleware(app)
+
+# Prometheus /metrics (Phase 2.3 / audit T3). Installed before the
+# routers so its middleware wraps every request — including the ones
+# that were mounted by init_middleware just above.
+install_fastapi_instrumentator(app)
 
 # Register exception handlers so unhandled errors return JSON (with CORS
 # headers) instead of falling through to Starlette's ServerErrorMiddleware,
