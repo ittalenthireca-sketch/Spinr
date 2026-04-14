@@ -196,7 +196,14 @@ export default function OtpScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          accessibilityHint="Returns to the phone number entry screen"
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
           <Ionicons name="arrow-back" size={22} color={THEME.text} />
         </TouchableOpacity>
 
@@ -227,6 +234,11 @@ export default function OtpScreen() {
             keyboardType="phone-pad"
             maxLength={codeLength}
             autoFocus
+            accessibilityLabel={`Verification code, ${codeLength} digits`}
+            accessibilityHint={`Enter the ${codeLength}-digit code we texted to ${phoneNumber}`}
+            autoComplete="sms-otp"
+            textContentType="oneTimeCode"
+            importantForAutofill="yes"
           />
 
           <TouchableOpacity
@@ -271,6 +283,12 @@ export default function OtpScreen() {
           onPress={handleVerify}
           disabled={verifying || code.length !== codeLength}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Verify code"
+          accessibilityState={{
+            disabled: verifying || code.length !== codeLength,
+            busy: verifying,
+          }}
         >
           {verifying ? (
             <ActivityIndicator color="#fff" size="small" />

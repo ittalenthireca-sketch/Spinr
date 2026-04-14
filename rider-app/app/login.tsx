@@ -164,6 +164,11 @@ export default function LoginScreen() {
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               testID="phone-input"
+              accessibilityLabel="Phone number"
+              accessibilityHint="Enter your 10-digit Canadian mobile phone number"
+              autoComplete="tel"
+              textContentType="telephoneNumber"
+              importantForAutofill="yes"
             />
             {isValid && (
               <View style={styles.checkIcon}>
@@ -191,6 +196,10 @@ export default function LoginScreen() {
           disabled={loading || !isValid}
           activeOpacity={0.85}
           testID="send-otp-btn"
+          accessibilityRole="button"
+          accessibilityLabel="Send verification code"
+          accessibilityHint={isValid ? "Sends a one-time code to your phone" : "Enter a full 10-digit phone number to continue"}
+          accessibilityState={{ disabled: loading || !isValid, busy: loading }}
         >
           {loading ? (
             <ActivityIndicator color="#fff" size="small" />
