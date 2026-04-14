@@ -12,18 +12,17 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useAuthStore } from '@shared/store/authStore';
+import { useRouter } from 'expo-router';
 import { useDriverStore } from '../../store/driverStore';
+import type { ChatMessage } from '../../store/driverStore';
 import api from '@shared/api/client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import SpinrConfig from '@shared/config/spinr.config';
 
 const THEME = SpinrConfig.theme.colors;
 const COLORS = {
-    primary: THEME.background, // Background (white)
-    accent: THEME.primary, // Action/brand color (red)
+    primary: THEME.background,
+    accent: THEME.primary,
     accentDim: THEME.primaryDark,
     surface: THEME.surface,
     surfaceLight: THEME.surfaceLight,
@@ -34,18 +33,11 @@ const COLORS = {
     border: THEME.border,
 };
 
-interface ChatMessage {
-    id: string;
-    text: string;
-    sender: 'driver' | 'rider';
-    timestamp: string;
-}
-
 const QUICK_MESSAGES = [
     'On my way!',
     'I have arrived',
     'Running a few minutes late',
-    'I\'m at the pickup location',
+    "I'm at the pickup location",
     'Please confirm your location',
     'Thank you!',
 ];
@@ -53,9 +45,7 @@ const QUICK_MESSAGES = [
 export default function ChatScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { user, driver } = useAuthStore();
-    const { activeRide } = useDriverStore();
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const { activeRide, chatMessages, addChatMessage, setChatMessages } = useDriverStore();
     const [inputText, setInputText] = useState('');
     const [showQuickReplies, setShowQuickReplies] = useState(true);
     const [sending, setSending] = useState(false);
@@ -65,25 +55,30 @@ export default function ChatScreen() {
     const rideId = activeRide?.ride?.id;
     const CHAT_STORAGE_KEY = rideId ? `spinr_chat_${rideId}` : null;
 
-    // G12: Load chat history from backend + merge with any persisted messages
+    // Load chat history: AsyncStorage first (instant), then backend (authoritative).
+    // Real-time incoming messages are pushed via WS → useDriverDashboard → driverStore.
     useEffect(() => {
         if (!rideId) return;
+
         (async () => {
-            // Load from AsyncStorage first (instant, offline-safe)
+            // 1. Seed from local cache for instant render
             try {
                 if (CHAT_STORAGE_KEY) {
                     const saved = await AsyncStorage.getItem(CHAT_STORAGE_KEY);
-                    if (saved) setMessages(JSON.parse(saved));
+                    if (saved) setChatMessages(JSON.parse(saved));
                 }
             } catch {}
-            // Then fetch from backend (authoritative, may have messages from rider)
+
+            // 2. Fetch authoritative history from backend
             try {
                 const res = await api.get(`/rides/${rideId}/messages`);
                 if (res.data?.messages?.length) {
-                    setMessages(res.data.messages);
-                    // Persist the authoritative list
+                    setChatMessages(res.data.messages);
                     if (CHAT_STORAGE_KEY) {
-                        await AsyncStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(res.data.messages));
+                        await AsyncStorage.setItem(
+                            CHAT_STORAGE_KEY,
+                            JSON.stringify(res.data.messages),
+                        );
                     }
                 }
             } catch (e) {
@@ -92,28 +87,23 @@ export default function ChatScreen() {
         })();
     }, [rideId]);
 
-        return () => {
-        // Poll for new messages every 10s (incoming messages from rider)
+    // Persist to AsyncStorage whenever the store updates (keeps cache fresh
+    // for the next cold-start without an extra fetch).
     useEffect(() => {
-        if (!rideId) return;
-        const interval = setInterval(async () => {
-            try {
-                const res = await api.get(`/rides/${rideId}/messages`);
-                if (res.data?.messages?.length) {
-                    setMessages(res.data.messages);
-                    if (CHAT_STORAGE_KEY) {
-                        await AsyncStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(res.data.messages));
-                    }
-                }
-            } catch {}
-        }, 10000);
-        return () => clearInterval(interval);
-    }, [rideId]);
+        if (!CHAT_STORAGE_KEY || chatMessages.length === 0) return;
+        AsyncStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages)).catch(() => {});
+    }, [chatMessages, CHAT_STORAGE_KEY]);
+
+    // Scroll to bottom on new messages
+    useEffect(() => {
+        if (chatMessages.length > 0) {
+            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
+        }
+    }, [chatMessages.length]);
 
     const sendMessage = useCallback(async (text: string) => {
         if (!text.trim() || !rideId || sending) return;
         setSending(true);
-
         const trimmed = text.trim();
         setInputText('');
         setShowQuickReplies(false);
@@ -121,26 +111,16 @@ export default function ChatScreen() {
         try {
             const res = await api.post(`/rides/${rideId}/messages`, { text: trimmed });
             if (res.data?.message) {
-                setMessages((prev) => {
-                    const exists = prev.some((m) => m.id === res.data.message.id);
-                    const updated = exists ? prev : [...prev, res.data.message];
-                    // Persist
-                    if (CHAT_STORAGE_KEY) {
-                        AsyncStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
-                    }
-                    return updated;
-                });
+                // Backend's REST handler also broadcasts via WS, so addChatMessage
+                // deduplication ensures no double-render even if we add optimistically.
+                addChatMessage(res.data.message);
             }
         } catch (e) {
             console.log('[Chat] Send failed:', e);
         } finally {
             setSending(false);
         }
-
-        setTimeout(() => {
-            flatListRef.current?.scrollToEnd({ animated: true });
-        }, 100);
-    }, [rideId]);
+    }, [rideId, sending, addChatMessage]);
 
     const formatTime = (dateStr: string) => {
         return new Date(dateStr).toLocaleTimeString('en', {
@@ -175,7 +155,10 @@ export default function ChatScreen() {
             keyboardVerticalOffset={0}
         >
             {/* Header */}
-            <LinearGradient colors={[COLORS.surface, COLORS.primary]} style={[styles.header, { paddingTop: insets.top + 12 }]}>
+            <LinearGradient
+                colors={[COLORS.surface, COLORS.primary]}
+                style={[styles.header, { paddingTop: insets.top + 12 }]}
+            >
                 <View style={styles.headerRow}>
                     <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
                         <Ionicons name="arrow-back" size={22} color={COLORS.text} />
@@ -186,18 +169,21 @@ export default function ChatScreen() {
                             {rideId ? 'Active Ride' : 'No active ride'}
                         </Text>
                     </View>
-                    <TouchableOpacity style={styles.callBtn} onPress={async () => {
-                        if (!rideId) return;
-                        try {
-                            const res = await api.get(`/rides/${rideId}/call`);
-                            if (res.data?.phone) {
-                                const { Linking } = require('react-native');
-                                Linking.openURL(`tel:${res.data.phone}`);
+                    <TouchableOpacity
+                        style={styles.callBtn}
+                        onPress={async () => {
+                            if (!rideId) return;
+                            try {
+                                const res = await api.get(`/rides/${rideId}/call`);
+                                if (res.data?.phone) {
+                                    const { Linking } = require('react-native');
+                                    Linking.openURL(`tel:${res.data.phone}`);
+                                }
+                            } catch (e: any) {
+                                console.log('[Chat] Call failed:', e?.response?.data?.detail || e.message);
                             }
-                        } catch (e: any) {
-                            console.log('[Chat] Call failed:', e?.response?.data?.detail || e.message);
-                        }
-                    }}>
+                        }}
+                    >
                         <Ionicons name="call" size={20} color={COLORS.accent} />
                     </TouchableOpacity>
                 </View>
@@ -206,7 +192,7 @@ export default function ChatScreen() {
             {/* Messages */}
             <FlatList
                 ref={flatListRef}
-                data={messages}
+                data={chatMessages}
                 renderItem={renderMessage}
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={styles.messageList}
@@ -266,7 +252,11 @@ export default function ChatScreen() {
                     onPress={() => sendMessage(inputText)}
                     disabled={!inputText.trim()}
                 >
-                    <Ionicons name="send" size={18} color={inputText.trim() ? '#fff' : COLORS.textDim} />
+                    <Ionicons
+                        name="send"
+                        size={18}
+                        color={inputText.trim() ? '#fff' : COLORS.textDim}
+                    />
                 </TouchableOpacity>
             </View>
         </KeyboardAvoidingView>

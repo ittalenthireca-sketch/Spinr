@@ -346,16 +346,12 @@ export const useDriverDashboard = (): UseDriverDashboardReturn => {
         }
         break;
 
-      // G3: Rider-to-driver chat messages. The backend's WebSocket
-      // handler at websocket.py:272-303 forwards chat_message to
-      // `driver_{user_id}`. Previously this case was missing so
-      // driver never saw rider's messages during a ride.
+      // G3: Rider-to-driver chat messages. Backend websocket.py forwards
+      // chat_message to `driver_{user_id}`. Push into driverStore so
+      // chat.tsx updates in real-time without polling. [SPR-01]
       case 'chat_message':
         console.log('[WS] Chat from rider:', data.text?.slice(0, 40));
-        // If the chat screen ever maintains a store (like the rider-app
-        // does via rideStore.addChatMessage), wire it here. For now we
-        // surface a small vibration so the driver knows a message arrived
-        // even if they're not on the chat screen.
+        useDriverStore.getState().addChatMessage(data);
         Vibration.vibrate(100);
         break;
     }

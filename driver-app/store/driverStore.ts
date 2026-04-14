@@ -26,6 +26,14 @@ const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: numbe
     return R * c; // Distance in meters
 };
 
+export interface ChatMessage {
+    id: string;
+    ride_id: string;
+    text: string;
+    sender: 'driver' | 'rider';
+    timestamp: string;
+}
+
 export type RideState =
     | 'idle'
     | 'ride_offered'
@@ -235,6 +243,9 @@ interface DriverState {
     rideHistory: any[];
     historyTotal: number;
 
+    // In-ride chat (real-time via WS, seeded from REST on screen mount)
+    chatMessages: ChatMessage[];
+
     // Loading states
     isLoading: boolean;
     error: string | null;
@@ -275,6 +286,11 @@ interface DriverState {
     fetchT4ADetails: (year: number) => Promise<void>;
     setSelectedYear: (year: number | null) => void;
 
+    // Chat actions
+    addChatMessage: (msg: ChatMessage) => void;
+    setChatMessages: (msgs: ChatMessage[]) => void;
+    clearChatMessages: () => void;
+
     // State management
     resetRideState: () => void;
     rateRider: (rideId: string, rating: number, comment?: string) => Promise<void>;
@@ -310,6 +326,8 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     // History
     rideHistory: [],
     historyTotal: 0,
+    // Chat messages for the active ride (seeded via REST, kept live by WS)
+    chatMessages: [],
     isLoading: false,
     error: null,
 
@@ -572,6 +590,18 @@ export const useDriverStore = create<DriverState>((set, get) => ({
         }
     },
 
+    // ── Chat actions ────────────────────────────────────────────────
+    addChatMessage: (msg: ChatMessage) => {
+        const { chatMessages } = get();
+        // Deduplicate by id — WS and REST may both deliver the same message
+        if (chatMessages.some((m) => m.id === msg.id)) return;
+        set({ chatMessages: [...chatMessages, msg] });
+    },
+
+    setChatMessages: (msgs: ChatMessage[]) => set({ chatMessages: msgs }),
+
+    clearChatMessages: () => set({ chatMessages: [] }),
+
     resetRideState: () => {
         set({
             rideState: 'idle',
@@ -579,6 +609,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
             activeRide: null,
             completedRide: null,
             countdownSeconds: 0,
+            chatMessages: [],
             error: null,
         });
     },
