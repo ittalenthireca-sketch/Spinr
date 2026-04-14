@@ -29,7 +29,7 @@
 | # | Item | Doc | Status |
 |---|---|---|---|
 | 1.1 | Refresh token + access-token rotation; revocation list | S3 | ✅ done — backend: `refresh_tokens` table + `users.token_version` (`migrations/25_refresh_tokens_and_token_version.sql`); `POST /auth/refresh` + `POST /auth/logout` + `POST /auth/logout-all` in `routes/auth.py`; `token_version` gate in `dependencies.get_current_user`. Mobile: `useAuthStore.applyAuthResponse` + `refreshAccessToken` (`shared/store/authStore.ts`); on-401 single-flight refresh + retry in `shared/api/client.ts:withRefreshRetry`. Follow-up to drop `ACCESS_TOKEN_TTL_DAYS` from 30→1-7 after mobile rollout lands (tracked in `core/config.py:38-43`). |
-| 1.2 | Complete RLS coverage (20+ tables) | S4 | 🔴 not started |
+| 1.2 | Complete RLS coverage (20+ tables) | S4 | ✅ done — alembic revision `0002_rls_policy_closure` (`backend/alembic/versions/20260414_0002_rls_policy_closure.py`) closes policy gap on 19 RLS-enabled tables: 9 owner-owned get `deny_all` + `select_own(<owner>::text = auth.uid()::text)`; 7 sensitive tables get `deny_all` only; 3 catalogue tables get `deny_all` + `public_read`. Audit script `backend/scripts/rls_audit.sql` + reviewer guide in `backend/alembic/README.md#rls-reviewer-guide`. Backend uses `SUPABASE_SERVICE_ROLE_KEY` (BYPASSRLS) so policies are pure defence-in-depth — no app-side changes required. |
 | 1.3 | Migrate to Supavisor pooled Postgres endpoint | B7 | 🔴 not started |
 | 1.4 | Add critical indexes (7-query list) | P4 | 🔴 not started |
 | 1.5 | Move Stripe webhook processing to async queue | P7 | 🔴 not started |
@@ -111,7 +111,7 @@ Before the first public paying user, every P0 must be ✅. Sign-off required by 
 - [x] Security-headers middleware deployed
 - [x] Rate limiter backed by Redis
 - [x] Refresh token + revocation live
-- [ ] RLS on every table in `public` schema
+- [x] RLS on every table in `public` schema
 - [ ] WebSocket fan-out works across ≥2 machines (load-tested)
 - [x] Alembic migrations adopted; duplicate prefixes resolved
 - [ ] All critical indexes applied

@@ -142,6 +142,56 @@ so it catches three common mistakes:
 
 If that step fails, your revision does not merge.
 
+## RLS reviewer guide
+
+Row-Level Security is load-bearing for the "someone ships the anon key
+in a mobile build" failure mode. When you add a table to `public`, you
+**must** decide its client-role posture and write the policy in the same
+Alembic revision that creates the table. Defaults below match what
+`0002_rls_policy_closure.py` uses.
+
+### Decision tree
+
+1. **Will `anon` or `authenticated` ever read this table?**
+   If no → `ENABLE ROW LEVEL SECURITY` + a single `deny_all` policy.
+   Backend keeps working because it uses `service_role` which has
+   `BYPASSRLS`.
+
+2. **Is every row owned by one user?**
+   → Add a `FOR SELECT TO authenticated USING (<owner>::text =
+   auth.uid()::text)` carve-out on top of `deny_all`. Writes stay off
+   the client path — all mutations flow through FastAPI.
+
+3. **Is it an admin-curated reference catalogue that everyone can read?**
+   → Add `FOR SELECT TO authenticated USING (true)` and register the
+   table in the allow-list block of `backend/scripts/rls_audit.sql`
+   (section 3) so the audit doesn't flag it as a footgun.
+
+4. **Is it sensitive multi-party data (audit logs, admin notes,
+   anything cross-user)?**
+   → `deny_all` only. No client SELECT path. Reads happen server-side
+   with its own authorisation.
+
+### Running the audit
+
+```bash
+psql "$DATABASE_URL" -f backend/scripts/rls_audit.sql
+```
+
+A clean run returns zero rows in all three sections. Run it against
+staging after every RLS-touching deploy, and against production as part
+of the monthly security review. (It is not a CI gate yet because CI
+does not run against a live DB; move it to a scheduled GitHub Action
+with a read-only service role once that infrastructure exists.)
+
+### Worked example
+
+See `backend/alembic/versions/20260414_0002_rls_policy_closure.py` for
+all three shapes applied in one revision (owner, sensitive, public-read).
+The constants `OWNER_TABLES`, `SENSITIVE_TABLES`, and
+`PUBLIC_READ_TABLES` at the top of that file are a readable index of
+the current classification of every table in `public`.
+
 ## Gotchas
 
 * **Do not edit applied revisions.** Alembic doesn't have a checksum
