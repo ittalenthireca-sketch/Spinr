@@ -63,6 +63,7 @@ async def stripe_event_worker_loop() -> None:
             fetch_unprocessed_stripe_events,
             mark_stripe_event_failed,
             mark_stripe_event_processed,
+            record_bg_task_heartbeat,
         )
         from .stripe_dispatcher import dispatch_stripe_event
     except ImportError:
@@ -70,53 +71,69 @@ async def stripe_event_worker_loop() -> None:
             fetch_unprocessed_stripe_events,
             mark_stripe_event_failed,
             mark_stripe_event_processed,
+            record_bg_task_heartbeat,
         )
         from utils.stripe_dispatcher import dispatch_stripe_event  # type: ignore[no-redef]
 
     logger.info(f"[stripe-worker] starting poll loop (interval={POLL_INTERVAL_SECONDS}s, batch={BATCH_SIZE})")
 
     while True:
+        status = "ok"
+        loop_err: str | None = None
+
         try:
             batch = await fetch_unprocessed_stripe_events(limit=BATCH_SIZE)
         except Exception as e:  # noqa: BLE001 — loop stability trumps specificity
             logger.error(f"[stripe-worker] poll failed: {e}")
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
-            continue
+            batch = []
+            status = "error"
+            loop_err = f"poll failed: {e}"
 
-        if not batch:
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
-            continue
+        if batch:
+            logger.debug(f"[stripe-worker] processing batch of {len(batch)} event(s)")
 
-        logger.debug(f"[stripe-worker] processing batch of {len(batch)} event(s)")
+            for row in batch:
+                event_id = row.get("event_id")
+                event_type = row.get("event_type") or ""
+                payload = row.get("payload") or {}
+                attempt_count = int(row.get("attempt_count") or 0)
+                if not event_id:
+                    continue
 
-        for row in batch:
-            event_id = row.get("event_id")
-            event_type = row.get("event_type") or ""
-            payload = row.get("payload") or {}
-            attempt_count = int(row.get("attempt_count") or 0)
-            if not event_id:
-                continue
+                try:
+                    await dispatch_stripe_event(event_type, payload)
+                except Exception as e:  # noqa: BLE001 — we classify below
+                    # Truncated repr — `last_error` is TEXT but we cap at
+                    # 2000 chars in the DB helper to avoid pathological
+                    # traceback dumps blowing up the row.
+                    logger.error(
+                        f"[stripe-worker] dispatch failed "
+                        f"event_id={event_id} type={event_type} "
+                        f"attempt={attempt_count + 1}: {e}"
+                    )
+                    await mark_stripe_event_failed(event_id, str(e), attempt_count)
+                    # We keep loop status='ok' here: dispatch failures are
+                    # already tracked per-event on the row via
+                    # `attempt_count` / `last_error`, and the loop itself
+                    # is healthy as long as it keeps polling.
+                    continue
 
-            try:
-                await dispatch_stripe_event(event_type, payload)
-            except Exception as e:  # noqa: BLE001 — we classify below
-                # Truncated repr — `last_error` is TEXT but we cap at
-                # 2000 chars in the DB helper to avoid pathological
-                # traceback dumps blowing up the row.
-                logger.error(
-                    f"[stripe-worker] dispatch failed "
-                    f"event_id={event_id} type={event_type} "
-                    f"attempt={attempt_count + 1}: {e}"
+                await mark_stripe_event_processed(event_id)
+                logger.info(
+                    f"[stripe-worker] dispatched "
+                    f"event_id={event_id} type={event_type} attempt={attempt_count + 1}"
                 )
-                await mark_stripe_event_failed(event_id, str(e), attempt_count)
-                continue
 
-            await mark_stripe_event_processed(event_id)
-            logger.info(
-                f"[stripe-worker] dispatched "
-                f"event_id={event_id} type={event_type} attempt={attempt_count + 1}"
-            )
+        # Heartbeat (Phase 1.6 / T15) — written every tick regardless of
+        # whether the batch was empty, so /health/deep doesn't flag the
+        # worker as stale during quiet periods.
+        await record_bg_task_heartbeat(
+            "stripe_event_worker",
+            POLL_INTERVAL_SECONDS,
+            status=status,
+            error=loop_err,
+        )
 
-        # Small cooperative yield between batches so other tasks on the
-        # worker event loop (subscription expiry, surge, etc) get CPU.
-        await asyncio.sleep(0.1)
+        # Short sleep when there was work to process (keeps up with bursts);
+        # full poll interval otherwise.
+        await asyncio.sleep(0.1 if batch else POLL_INTERVAL_SECONDS)

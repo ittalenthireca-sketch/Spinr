@@ -1201,3 +1201,89 @@ async def mark_stripe_event_failed(event_id: str, error: str, attempt_count: int
         await run_sync(_fn)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to record stripe event failure for {event_id}: {e}")
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Background task heartbeats (Phase 1.6 / audit T15)
+#
+# Every background loop in the worker process calls
+# ``record_bg_task_heartbeat`` at the end of each iteration, success or
+# failure. ``/health/deep`` reads ``fetch_bg_task_heartbeats`` and
+# returns 503 if any row's ``last_run_at`` is older than
+# ``2 * expected_interval_seconds`` — catching the "worker alive but
+# a single loop wedged" failure mode that API-side DB probes miss.
+#
+# The helpers fail soft: if Supabase isn't configured, or a write
+# fails, we log and move on — a heartbeat write must never take a
+# loop down. The readiness probe treats "no heartbeat rows at all"
+# as healthy (the table might just be empty at fresh boot).
+# ────────────────────────────────────────────────────────────────────────
+
+
+async def record_bg_task_heartbeat(
+    task_name: str,
+    expected_interval_seconds: int,
+    status: str = "ok",
+    error: str | None = None,
+) -> None:
+    """Upsert a heartbeat for ``task_name``.
+
+    Called at the end of every background loop iteration. Never raises
+    — a failed heartbeat must not take the loop down (we'd rather the
+    loop keep running and the health check flag it stale than have the
+    whole worker crash because the heartbeat table is temporarily
+    unreachable).
+    """
+    if not supabase:
+        return
+
+    if status not in ("ok", "error"):
+        status = "error"
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    row = {
+        "task_name": task_name,
+        "last_run_at": now_iso,
+        "last_status": status,
+        "last_error": (error or "")[:2000] if error else None,
+        "expected_interval_seconds": int(expected_interval_seconds),
+        "updated_at": now_iso,
+    }
+
+    def _fn():
+        # on_conflict is required because task_name is the PK — without
+        # it PostgREST treats the row as a plain insert and 409s on the
+        # second heartbeat.
+        supabase.table("bg_task_heartbeat").upsert(
+            row, on_conflict="task_name"
+        ).execute()
+
+    try:
+        await run_sync(_fn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record bg_task_heartbeat for {task_name}: {e}")
+
+
+async def fetch_bg_task_heartbeats() -> list[Dict[str, Any]]:
+    """Return every heartbeat row.
+
+    Used by ``/health/deep`` — low cardinality (one row per background
+    task, maybe ~10 total) so we don't paginate. Returns ``[]`` on any
+    failure so the health endpoint can differentiate "no rows yet" vs
+    "DB unreachable" (the DB probe above will have already flagged the
+    DB unreachable case).
+    """
+    if not supabase:
+        return []
+
+    def _fn():
+        return supabase.table("bg_task_heartbeat").select(
+            "task_name,last_run_at,last_status,last_error,expected_interval_seconds"
+        ).execute()
+
+    try:
+        resp = await run_sync(_fn)
+        return list(resp.data or [])
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"fetch_bg_task_heartbeats failed: {e}")
+        return []

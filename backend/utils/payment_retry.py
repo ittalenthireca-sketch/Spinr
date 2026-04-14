@@ -133,10 +133,27 @@ async def retry_failed_payments():
 
 async def payment_retry_loop():
     """Background loop that retries failed payments every RETRY_INTERVAL_SECONDS."""
+    try:
+        from db_supabase import record_bg_task_heartbeat
+    except ImportError:
+        from ..db_supabase import record_bg_task_heartbeat  # type: ignore[no-redef]
+
     logger.info(f"Payment retry service started (interval={RETRY_INTERVAL_SECONDS}s)")
     while True:
+        status = "ok"
+        err: str | None = None
         try:
             await retry_failed_payments()
         except Exception as e:
             logger.error(f"Payment retry loop error: {e}")
+            status = "error"
+            err = str(e)
+
+        # Heartbeat (Phase 1.6 / T15)
+        await record_bg_task_heartbeat(
+            "payment_retry",
+            RETRY_INTERVAL_SECONDS,
+            status=status,
+            error=err,
+        )
         await asyncio.sleep(RETRY_INTERVAL_SECONDS)

@@ -130,10 +130,27 @@ async def check_expiring_documents():
 
 async def document_expiry_loop():
     """Background loop that checks for expiring documents every 12 hours."""
+    try:
+        from db_supabase import record_bg_task_heartbeat
+    except ImportError:
+        from ..db_supabase import record_bg_task_heartbeat  # type: ignore[no-redef]
+
     logger.info("Document expiry checker started (every 12h)")
     while True:
+        status = "ok"
+        err: str | None = None
         try:
             await check_expiring_documents()
         except Exception as e:
             logger.error(f"Document expiry loop error: {e}")
+            status = "error"
+            err = str(e)
+
+        # Heartbeat (Phase 1.6 / T15)
+        await record_bg_task_heartbeat(
+            "document_expiry",
+            CHECK_INTERVAL_SECONDS,
+            status=status,
+            error=err,
+        )
         await asyncio.sleep(CHECK_INTERVAL_SECONDS)

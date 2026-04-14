@@ -224,8 +224,17 @@ async def get_surge_status() -> List[Dict[str, Any]]:
 
 async def surge_recalculation_loop():
     """Background loop that recalculates surge every RECALC_INTERVAL_SECONDS."""
+    # Imported lazily so importing this module doesn't require supabase
+    # in narrow unit tests.
+    try:
+        from db_supabase import record_bg_task_heartbeat
+    except ImportError:
+        from ..db_supabase import record_bg_task_heartbeat  # type: ignore[no-redef]
+
     logger.info(f"Surge engine started (interval={RECALC_INTERVAL_SECONDS}s)")
     while True:
+        status = "ok"
+        err: str | None = None
         try:
             results = await recalculate_all_surges()
             if results:
@@ -233,4 +242,16 @@ async def surge_recalculation_loop():
                 logger.debug(f"Surge recalc complete: {len(results)} areas, {active} surging")
         except Exception as e:
             logger.error(f"Surge recalculation loop error: {e}")
+            status = "error"
+            err = str(e)
+
+        # Heartbeat (Phase 1.6 / T15) — written on success *and* failure
+        # so a loop that's alive-but-always-erroring shows up as status
+        # 'error' in /health/deep rather than masquerading as healthy.
+        await record_bg_task_heartbeat(
+            "surge_engine",
+            RECALC_INTERVAL_SECONDS,
+            status=status,
+            error=err,
+        )
         await asyncio.sleep(RECALC_INTERVAL_SECONDS)
