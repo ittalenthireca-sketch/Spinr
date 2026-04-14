@@ -161,3 +161,51 @@ jobs:
           curl -sS -X POST -H 'Content-Type: application/json' \
             --data '{"text":":warning: synthetic: staging /rides/estimate smoke flow failed","username":"spinr-synthetic"}' \
             "$SLACK_WEBHOOK"
+
+  # 2.6d — k6 baseline as a scheduled load synthetic (Phase 2.5e / T8).
+  # Runs the k6 "smoke" scenario (1 VU × 30s) against staging every
+  # ~30 min (every 6th cron tick of the 5-min parent schedule).
+  # Purpose: catch latency regressions between prod deploys that the
+  # curl-based probes above can't detect (they only check HTTP status).
+  # Threshold failures are surfaced to Slack; they do NOT page on-call
+  # because a single k6 run is too noisy to be a reliable pager source.
+  k6-latency-synthetic:
+    name: "k6 latency synthetic (smoke scenario)"
+    runs-on: ubuntu-latest
+    if: ${{ (github.event.schedule && github.run_number % 6 == 0) || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install k6
+        run: |
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] \
+            https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update && sudo apt-get install -y k6
+
+      - name: Run k6 smoke against staging
+        id: k6
+        env:
+          BASE_URL: https://spinr-api-staging.fly.dev
+          SCENARIO: smoke
+        # --out json captures the summary for Slack; exit code non-zero
+        # on threshold failure (http_req_failed > 0.1% or p95 > 400ms).
+        run: |
+          k6 run ops/loadtest/k6-api-baseline.js \
+            --out json=/tmp/k6-summary.json || echo "K6_FAILED=true" >> "$GITHUB_ENV"
+
+      - name: Notify Slack on threshold failure
+        if: env.K6_FAILED == 'true'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_ALERTS }}
+        run: |
+          curl -sS -X POST -H 'Content-Type: application/json' \
+            --data '{
+              "text": ":chart_with_downwards_trend: synthetic: k6 latency thresholds breached on staging — p95 may be above 400ms or error rate above 0.1%. Check Grafana for correlation.",
+              "username": "spinr-synthetic"
+            }' \
+            "$SLACK_WEBHOOK"

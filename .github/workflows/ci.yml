@@ -513,6 +513,8 @@ jobs:
     needs: [deploy-backend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
+      - uses: actions/checkout@v6
+
       - name: Health check (shallow / liveness)
         run: |
           curl -f --retry 3 --retry-delay 5 \
@@ -539,6 +541,29 @@ jobs:
         run: |
           curl -f https://spinr-api.fly.dev/api/v1/vehicle-types || \
           curl -f https://spinr-api.onrender.com/api/v1/vehicle-types
+
+      # Phase 2.5e — k6 smoke scenario post-deploy (audit finding T8).
+      # Runs against staging (not production) so we don't put even
+      # 1 VU of synthetic load on the production deployment. The smoke
+      # scenario is 1 VU for 30s — fast enough for a CI gate.
+      # Threshold failures (http_req_failed > 0.1%, p95 > 400ms) fail
+      # this step and block the deploy job from being marked green.
+      - name: Install k6
+        run: |
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] \
+            https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update && sudo apt-get install -y k6
+
+      - name: k6 smoke (1 VU × 30s against staging)
+        env:
+          BASE_URL: ${{ secrets.STAGING_API_URL || 'https://spinr-api-staging.fly.dev' }}
+          SCENARIO: smoke
+        run: k6 run ops/loadtest/k6-api-baseline.js
 
   # Notify on failure (main only — PR failures already surface via PR checks)
   notify-failure:
