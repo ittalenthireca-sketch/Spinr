@@ -53,6 +53,10 @@ async def _run_all_loops() -> None:
     from db_supabase import run_sync
     from supabase_client import supabase
 
+    # Sentry already initialised in main() (Phase 2.2b) before this
+    # coroutine runs, so any exception raised here (DB probe, loop
+    # import) propagates to Sentry via the logging integration.
+
     # Boot-time DB probe — fail fast if the worker can't reach Supabase.
     # Mirrors the check in core/lifespan.init_database so the worker has
     # the same production guarantees as the API.
@@ -153,6 +157,21 @@ async def _run_all_loops() -> None:
 
 def main() -> int:
     """Module entrypoint; invoked by `python -m worker`."""
+    # Initialise Sentry at the earliest possible moment (Phase 2.2b /
+    # audit T1) so any boot-time exception raised *before* the async
+    # loop starts still reaches the alerting backend. The shared
+    # helper is a no-op when SENTRY_DSN is unset, so dev/tests keep
+    # working without observability plumbed in.
+    try:
+        from utils.sentry_init import init_sentry
+
+        init_sentry(role="worker")
+    except Exception as e:  # noqa: BLE001
+        # Do NOT let an observability-plumbing failure stop the worker
+        # from starting — surfacing the error via logger.error is the
+        # best we can do here.
+        logger.warning(f"Worker: Sentry init skipped due to error: {e}")
+
     try:
         asyncio.run(_run_all_loops())
     except KeyboardInterrupt:
