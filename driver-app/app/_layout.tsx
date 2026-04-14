@@ -17,6 +17,21 @@ import {
   setBackgroundMessageHandler,
   onTokenRefresh,
 } from '@shared/services/firebase';
+import { initSentry } from '@shared/services/sentry';
+
+// Sentry init — Phase 2.2d of the production-readiness audit (audit
+// finding T1). Mirrors rider-app/app/_layout.tsx: must run at module
+// top level, BEFORE React mounts, so any render-time throw is captured.
+// The shared helper is a no-op when the DSN is blank, so dev/Expo Go
+// keep working without Sentry plumbed in. DSN/env/release flow through
+// app.config.ts `extra` so EAS secrets drive configuration without
+// touching source.
+initSentry({
+  appName: 'driver-app',
+  dsn: Constants.expoConfig?.extra?.EXPO_PUBLIC_SENTRY_DSN as string | undefined,
+  environment: Constants.expoConfig?.extra?.EXPO_PUBLIC_SENTRY_ENV as string | undefined,
+  release: Constants.expoConfig?.extra?.EXPO_PUBLIC_SENTRY_RELEASE as string | undefined,
+});
 
 // expo-notifications' push-token APIs were removed from Expo Go in SDK 53,
 // and its import throws on web where notifications don't exist. Lazy-require
