@@ -71,18 +71,18 @@
 
 ### Phase 4 — "Polish" (Weeks 5–6, ~8 eng-days)
 
-| # | Item | Doc |
-|---|---|---|
-| 4.1 | i18n (en + fr-CA) across 3 apps | F3 |
-| 4.2 | A11y pass on 12 critical mobile screens | F4 |
-| 4.3 | Upgrade rider-app to Expo SDK 55; align deps | F1 |
-| 4.4 | Offline/idempotent ride request + WS queue | F2 |
-| 4.5 | Move surge/dispatch to PostGIS | B10 / P5 / P6 |
-| 4.6 | Partition `gps_breadcrumbs` | P8 |
-| 4.7 | EAS channel hygiene + staged rollout | D6 |
-| 4.8 | Backup/DR + restore drill | D2 |
-| 4.9 | Staging environment parity | D4 |
-| 4.10 | Multi-region standby | D11 |
+| # | Item | Doc | Status |
+|---|---|---|---|
+| 4.1 | i18n (en + fr-CA) across 3 apps | F3 | ✅ done (`3db92bf`) |
+| 4.2 | A11y pass on 12 critical mobile screens | F4 | ✅ patterns + 4/12 screens (`bb08109`); `docs/ux/A11Y_AUDIT.md` tracks remaining 8 |
+| 4.3 | Upgrade rider-app to Expo SDK 55; align deps | F1 | ✅ done (`8ab2529`) |
+| 4.4 | Offline/idempotent ride request + WS queue | F2 | ✅ done (`0717d40`) — alembic `0007_ride_idempotency`, `claim_ride_idempotency_key`, `Idempotency-Key` header wired in `rider-app/store/rideStore.ts` |
+| 4.5 | Move surge/dispatch to PostGIS | B10 / P5 / P6 | ✅ done (`151c0c8`) — alembic `0009_postgis_geography` |
+| 4.6 | Partition `gps_breadcrumbs` | P8 | ✅ done (`151c0c8`) — alembic `0008_gps_breadcrumbs_partition` |
+| 4.7 | EAS channel hygiene + staged rollout | D6 | ✅ done (`9e90a98`) |
+| 4.8 | Backup/DR + restore drill | D2 | ✅ done (`0e75ba7`) |
+| 4.9 | Staging environment parity | D4 | ✅ done (`151c0c8`) — `docs/ops/STAGING_PARITY.md` |
+| 4.10 | Multi-region standby | D11 | ✅ done (`bd3322d`) |
 
 ---
 
