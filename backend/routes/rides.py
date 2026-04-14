@@ -1,3 +1,4 @@
+import os
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -10,6 +11,7 @@ try:
     from ..geo_utils import calculate_distance, get_service_area_polygon, point_in_polygon
     from ..schemas import CreateRideRequest, Ride, RideRatingRequest
     from ..settings_loader import get_app_settings
+    from ..sms_service import send_sms
     from ..socket_manager import manager
     from ..validators import validate_ride_location
 except ImportError:
@@ -20,6 +22,7 @@ except ImportError:
     from geo_utils import calculate_distance, get_service_area_polygon, point_in_polygon
     from schemas import CreateRideRequest, Ride, RideRatingRequest
     from settings_loader import get_app_settings
+    from sms_service import send_sms
     from socket_manager import manager
     from validators import validate_ride_location
 import asyncio
@@ -57,6 +60,8 @@ def _f(v: Decimal) -> float:
 
 
 api_router = APIRouter(prefix="/rides", tags=["Rides"])
+
+_FRONTEND_BASE = os.environ.get("FRONTEND_URL", "https://spinr.app")
 
 
 async def create_demo_drivers(vehicle_type_id: str, lat: float, lng: float):
@@ -1048,7 +1053,7 @@ async def get_share_trip_link(ride_id: str, current_user: dict = Depends(get_cur
 
     # The frontend would use this token to show a read-only tracking page
     # In production, this would be a full URL like: https://spinr.app/track/{share_token}
-    share_url = f"/track/{share_token}"
+    share_url = f"{_FRONTEND_BASE}/track/{share_token}"
 
     return {"success": True, "share_token": share_token, "share_url": share_url, "ride_id": ride_id}
 
@@ -1100,7 +1105,7 @@ async def share_trip_with_contact(
             {"$set": {"shared_with": shared_with}},
         )
 
-    share_url = f"/track/{share_token}"
+    share_url = f"{_FRONTEND_BASE}/track/{share_token}"
 
     # Send push notification to contact if they're a registered user
     contact_user = await db.users.find_one({"phone": body.contact_phone})
@@ -1113,6 +1118,21 @@ async def share_trip_with_contact(
             f"Track their live location: {ride.get('pickup_address', '')} → {ride.get('dropoff_address', '')}",
             data={"type": "trip_shared", "share_token": share_token, "ride_id": ride_id},
         )
+    else:
+        # Contact is not a Spinr user — fall back to SMS
+        app_cfg = await get_app_settings()
+        twilio_sid   = app_cfg.get("twilio_account_sid", "") if app_cfg else ""
+        twilio_token = app_cfg.get("twilio_auth_token", "")   if app_cfg else ""
+        twilio_from  = app_cfg.get("twilio_from_number", "")  if app_cfg else ""
+        if twilio_sid:
+            rider = await db.users.find_one({"id": current_user["id"]})
+            rider_name = f"{rider.get('first_name', '')} {rider.get('last_name', '')}".strip() if rider else "Someone"
+            sms_body = (
+                f"{rider_name} is sharing their Spinr ride with you. "
+                f"Track their live location: {_FRONTEND_BASE}/track/{share_token}"
+            )
+            await send_sms(body.contact_phone, sms_body,
+                           twilio_sid=twilio_sid, twilio_token=twilio_token, twilio_from=twilio_from)
 
     return {
         "success": True,
@@ -1503,12 +1523,30 @@ async def trigger_emergency(ride_id: str, request: EmergencyRequest, current_use
         user = await db.users.find_one({"id": current_user["id"]})
         user_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "A Spinr user"
 
+        app_cfg = await get_app_settings()
+        twilio_sid   = app_cfg.get("twilio_account_sid", "") if app_cfg else ""
+        twilio_token = app_cfg.get("twilio_auth_token", "")   if app_cfg else ""
+        twilio_from  = app_cfg.get("twilio_from_number", "")  if app_cfg else ""
+
         for contact in contacts:
-            # In production, this would send an actual SMS via Twilio
+            phone = contact.get("phone", "")
+            name  = contact.get("name", "Unknown")
+            if not phone:
+                continue
+            sms_body = (
+                f"🚨 EMERGENCY: {user_name} has triggered an emergency alert "
+                f"during their Spinr ride. GPS: {request.latitude}, {request.longitude}. "
+                f"Please call them or contact emergency services immediately."
+            )
+            sms_result = await send_sms(
+                phone, sms_body,
+                twilio_sid=twilio_sid,
+                twilio_token=twilio_token,
+                twilio_from=twilio_from,
+            )
             logger.info(
-                f"EMERGENCY SMS to {contact.get('name')} ({contact.get('phone')}): "
-                f"{user_name} triggered an emergency alert during their Spinr ride. "
-                f"Location: {request.latitude}, {request.longitude}"
+                f"Emergency SMS to {name} ({phone}): "
+                + ("sent" if sms_result.get("success") else f"failed — {sms_result.get('error')}")
             )
 
         if contacts:

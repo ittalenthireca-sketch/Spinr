@@ -64,8 +64,8 @@
 | 3.3 | ToS / Privacy acceptance audit trail ✅ | C3 |
 | 3.4 | Driver classification doc + IC agreement ✅ | C4 |
 | 3.5 | PCI SAQ-A attestation ✅ | C5 |
-| 3.6 | "Share ride" + in-app 911 button | C7 |
-| 3.7 | Price-transparency breakdown in rider UI | C9 |
+| 3.6 | "Share ride" + in-app 911 button ✅ | C7 |
+| 3.7 | Price-transparency breakdown in rider UI ✅ | C9 |
 
 ---
 

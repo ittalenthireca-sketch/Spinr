@@ -463,7 +463,9 @@ export default function RideOptionsScreen() {
                     <Text style={styles.unavailableText}>No drivers nearby</Text>
                   )}
                   {(estimate.surge_multiplier ?? 1) > 1.0 && (
-                    <Text style={styles.surgeNotice}>Fares are higher due to increased demand</Text>
+                    <Text style={styles.surgeNotice}>
+                      {`${estimate.surge_multiplier}× surge — high demand in your area`}
+                    </Text>
                   )}
                 </View>
 
