@@ -212,6 +212,28 @@ def _validate_production_config():
             "want drivers to receive push notifications."
         )
 
+    # 6. Sentry DSN (Phase 2.2 / audit T1). Production deploys without
+    #    Sentry fly blind: errors go to loguru only, which is per-machine
+    #    and has no alerting story. The SDK is already wired in
+    #    server.py; this gate just ensures the DSN is actually present
+    #    so deploys don't silently ship without error reporting.
+    sentry_dsn = (settings.sentry_dsn or "").strip()
+    if not sentry_dsn:
+        errors.append(
+            "SENTRY_DSN is not set. Production deploys must have Sentry "
+            "configured so unhandled exceptions and tracebacks reach an "
+            "alerting backend — loguru-only logging means crashes never "
+            "page anyone. Set SENTRY_DSN=https://…@…ingest.sentry.io/… "
+            "before booting."
+        )
+    elif not sentry_dsn.startswith(("https://", "http://")):
+        # Common copy-paste mistake: pasting the Sentry project URL or
+        # key fragment instead of the full DSN. Fail loudly.
+        errors.append(
+            "SENTRY_DSN does not look like a DSN URL (should start with "
+            f"https://). Got: {sentry_dsn[:40]}…"
+        )
+
     if errors:
         formatted = "\n  - ".join(errors)
         raise RuntimeError(
