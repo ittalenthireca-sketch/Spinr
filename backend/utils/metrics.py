@@ -251,6 +251,61 @@ async def _refresh_periodic_gauges() -> None:
         logger.debug(f"metrics refresh: bg task heartbeats failed: {e}")
 
 
+# ────────────────────────────────────────────────────────────────────────
+# Worker-process metrics HTTP exporter (Phase 2.3d / audit T3)
+#
+# The worker has no FastAPI app for prometheus-fastapi-instrumentator to
+# piggy-back on, but we still need its custom gauges (stripe_queue_depth
+# computed from the worker side, bg_task_heartbeat_age_seconds — the
+# worker is the one writing heartbeats, so its view is the freshest) to
+# be scrapeable. ``prometheus_client.start_http_server`` spins up a tiny
+# threaded HTTP server that serves the default registry at /metrics,
+# which is exactly the same registry the custom Gauges above register
+# into. No FastAPI needed.
+#
+# Port choice: 9090 is Prometheus's own default and causes confusion in
+# logs. 9091 is pushgateway. 9100 is node_exporter. 8000 is commonly used
+# by app metrics exporters but clashes with the API's dev-server port.
+# Picked 9464 (the OpenMetrics / OTel default for app-level exporters)
+# to avoid every one of those collisions.
+# ────────────────────────────────────────────────────────────────────────
+
+WORKER_METRICS_DEFAULT_PORT = 9464
+
+
+def start_worker_metrics_server(port: int = WORKER_METRICS_DEFAULT_PORT) -> None:
+    """Spin up a /metrics HTTP server on the worker process.
+
+    Safe to call exactly once — ``prometheus_client.start_http_server``
+    leaks a thread if called repeatedly, so the wrapper no-ops on
+    subsequent calls. Binds to 0.0.0.0 so the Fly metrics scraper (or
+    a sidecar) can reach it.
+
+    Fails soft: if the port is already bound or the start fails for
+    any reason, log and continue — an orphaned /metrics is recoverable
+    (Fly's stdout-based metrics still flow), but a crashed worker
+    isn't.
+    """
+    global _worker_metrics_started
+    if _worker_metrics_started:
+        return
+    try:
+        from prometheus_client import start_http_server
+
+        # addr="0.0.0.0" — the Fly private network (or metrics sidecar)
+        # scrapes the worker by Fly internal IP, so loopback-only would
+        # be unreachable. /metrics itself is not authenticated at this
+        # layer (Phase 2.3e decides the auth story).
+        start_http_server(port, addr="0.0.0.0")  # noqa: S104
+        _worker_metrics_started = True
+        logger.info(f"Worker: Prometheus /metrics exporter listening on :{port}")
+    except Exception as e:
+        logger.warning(f"Worker: failed to start /metrics exporter on :{port}: {e}")
+
+
+_worker_metrics_started = False
+
+
 async def metrics_refresh_loop() -> None:
     """Long-running loop that refreshes snapshot gauges every 30s.
 

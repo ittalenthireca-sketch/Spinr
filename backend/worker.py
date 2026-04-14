@@ -182,6 +182,26 @@ def main() -> int:
         # best we can do here.
         logger.warning(f"Worker: Sentry init skipped due to error: {e}")
 
+    # Phase 2.3d — expose /metrics from the worker process. Done BEFORE
+    # asyncio.run() so the server is bound while the loops are starting
+    # up, and so Prometheus can scrape boot-time gauge values. The port
+    # is overridable via WORKER_METRICS_PORT for the odd case where the
+    # default (9464) clashes with a sidecar. Fails soft if the port is
+    # already in use — see start_worker_metrics_server docstring.
+    try:
+        import os as _os
+
+        from utils.metrics import (
+            WORKER_METRICS_DEFAULT_PORT,
+            start_worker_metrics_server,
+        )
+
+        port_raw = _os.environ.get("WORKER_METRICS_PORT")
+        port = int(port_raw) if port_raw else WORKER_METRICS_DEFAULT_PORT
+        start_worker_metrics_server(port=port)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Worker: metrics exporter init skipped due to error: {e}")
+
     try:
         asyncio.run(_run_all_loops())
     except KeyboardInterrupt:
