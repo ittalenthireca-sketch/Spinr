@@ -59,11 +59,11 @@
 
 | # | Item | Doc |
 |---|---|---|
-| 3.1 | Data retention policy + cron enforcement | C1 |
-| 3.2 | PIPEDA doc + Privacy Officer designation | C2 |
-| 3.3 | ToS / Privacy acceptance audit trail | C3 |
-| 3.4 | Driver classification doc + IC agreement | C4 |
-| 3.5 | PCI SAQ-A attestation | C5 |
+| 3.1 | Data retention policy + cron enforcement ✅ | C1 |
+| 3.2 | PIPEDA doc + Privacy Officer designation ✅ | C2 |
+| 3.3 | ToS / Privacy acceptance audit trail ✅ | C3 |
+| 3.4 | Driver classification doc + IC agreement ✅ | C4 |
+| 3.5 | PCI SAQ-A attestation ✅ | C5 |
 | 3.6 | "Share ride" + in-app 911 button | C7 |
 | 3.7 | Price-transparency breakdown in rider UI | C9 |
 
@@ -131,11 +131,11 @@ Before the first public paying user, every P0 must be ✅. Sign-off required by 
 
 ### Compliance
 
-- [ ] Data retention policy live + first nightly run passed
-- [ ] PIPEDA doc published with Privacy Officer
-- [ ] ToS / Privacy acceptance persisted with version
-- [ ] Driver IC agreement counter-signed
-- [ ] PCI SAQ-A attested
+- [x] Data retention policy live + first nightly run passed
+- [x] PIPEDA doc published with Privacy Officer
+- [x] ToS / Privacy acceptance persisted with version
+- [x] Driver IC agreement counter-signed
+- [x] PCI SAQ-A attested
 - [ ] Cancellation policy visible in app
 - [ ] Fare breakdown visible in app
 

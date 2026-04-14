@@ -147,6 +147,17 @@ async def _run_all_loops() -> None:
     except Exception as e:
         logger.warning(f"Worker: failed to import metrics refresh loop: {e}")
 
+    # Phase 3.1 — nightly data retention sweep (02:00 UTC).
+    # Enforces docs/compliance/DATA_RETENTION.md: purges OTP records,
+    # cancelled rides, GPS breadcrumbs, chat messages, processed Stripe
+    # events, and expired refresh tokens on their respective schedules.
+    try:
+        from utils.data_retention import data_retention_loop
+
+        _spawn("data_retention (daily)", data_retention_loop)
+    except Exception as e:
+        logger.warning(f"Worker: failed to import data retention loop: {e}")
+
     logger.info(f"Worker: {len(tasks)} background tasks running; waiting for shutdown signal")
 
     # Block until a shutdown signal arrives. asyncio.Event is set by the

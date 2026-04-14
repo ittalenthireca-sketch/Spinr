@@ -210,16 +210,39 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
             )
         else:
             logger.info("Creating new user")
+            # Require explicit ToS + Privacy acceptance for new sign-ups.
+            # Legacy mobile clients that don't send these fields will
+            # receive a 422; they must be updated before the enforcement
+            # date. Old clients signing in to an EXISTING account are
+            # unaffected (the else branch above handles them).
+            if not body.accepted_tos_version:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "accepted_tos_version is required for new accounts. "
+                        "The client must display the ToS and Privacy Policy "
+                        "and send the version string the user accepted."
+                    ),
+                )
             user_id = str(uuid.uuid4())
             session_id = str(uuid.uuid4())
+            tos_accepted_at = datetime.now(timezone.utc).isoformat()
             new_user = {
                 "id": user_id,
                 "phone": phone,
                 "role": "rider",
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": tos_accepted_at,
                 "profile_complete": False,
                 "current_session_id": session_id,
                 "token_version": 0,
+                # ToS / Privacy acceptance audit trail (audit C3).
+                "accepted_tos_version": body.accepted_tos_version,
+                "accepted_tos_at": tos_accepted_at,
+                "accepted_privacy_at": (
+                    body.accepted_privacy_at.isoformat()
+                    if body.accepted_privacy_at
+                    else tos_accepted_at
+                ),
             }
             try:
                 await db.users.insert_one(new_user)
