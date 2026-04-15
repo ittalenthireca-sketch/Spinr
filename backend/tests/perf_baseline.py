@@ -28,7 +28,7 @@ import os
 import sys
 import time
 from datetime import datetime
-from statistics import mean, median, stdev
+from statistics import mean
 from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -54,7 +54,8 @@ os.environ.setdefault("ENV", "test")
 
 # Suppress loguru JSON output that would pollute the perf table.
 # Must run before server.py and its dependencies are imported.
-import logging
+import logging  # noqa: E402  (must precede server imports to suppress log noise)
+
 logging.disable(logging.WARNING)
 try:
     from loguru import logger as _loguru_logger
@@ -67,7 +68,7 @@ try:
 except Exception:
     pass
 
-import httpx
+import httpx  # noqa: E402  (must follow logging-suppression block above)
 
 # ---------------------------------------------------------------------------
 # Shared mock fixtures
@@ -171,15 +172,6 @@ async def bench_http(app, samples: int) -> list[dict]:
     mock_db = make_mock_db()
     results = []
 
-    # Patch all route-module db bindings at once
-    db_patches = {
-        "routes.wallet.db": mock_db,
-        "routes.loyalty.db": mock_db,
-        "routes.fare_split.db": mock_db,
-        "routes.quests.db": mock_db,
-        "routes.rides.db": mock_db,
-    }
-
     with (
         patch("routes.wallet.db", mock_db),
         patch("routes.loyalty.db", mock_db),
@@ -199,9 +191,9 @@ async def bench_http(app, samples: int) -> list[dict]:
                     t0 = time.perf_counter()
                     try:
                         if method == "GET":
-                            resp = await client.get(path)
+                            await client.get(path)
                         else:
-                            resp = await client.post(path, json=body)
+                            await client.post(path, json=body)
                         # 400-level responses are expected in some cases (e.g. redeem
                         # with insufficient points) — still a valid latency sample.
                         elapsed_ms = (time.perf_counter() - t0) * 1000
@@ -247,7 +239,6 @@ async def bench_ws(app, samples: int) -> dict:
     """
     from fastapi.testclient import TestClient
 
-    import dependencies
 
     mock_db = make_mock_db()
     mock_db.users.find_one = AsyncMock(return_value=MOCK_USER)

@@ -49,8 +49,8 @@ def make_mock_db():
 
 @pytest.fixture
 def client():
-    from backend.server import app  # ensures server.py sys.path setup runs first
     import dependencies  # same module the routes use (routes use relative '..dependencies')
+    from backend.server import app  # ensures server.py sys.path setup runs first
 
     app.dependency_overrides[dependencies.get_current_user] = lambda: SAMPLE_USER
     from fastapi.testclient import TestClient
@@ -96,6 +96,7 @@ class TestGetLoyaltyStatus:
 
     def test_unauthenticated_request_rejected(self):
         from fastapi.testclient import TestClient
+
         from backend.server import app
 
         # No dependency_overrides — real auth should reject the request
