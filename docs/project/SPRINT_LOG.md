@@ -85,7 +85,7 @@ _(to be recorded as sprint progresses)_
 ## SPR-02 — Quality Gates
 **Date:** 2026-04-15 (started)
 **Branch:** `claude/complete-product-streamline-Zj6lW`
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 
 ### Tasks
 | ID | Task | Status | Notes |
@@ -93,7 +93,7 @@ _(to be recorded as sprint progresses)_
 | 2a | Backend integration tests: loyalty, quests, wallet, fare-split | ✅ | 77 new tests; full suite 356 passing; uses TestClient + dependency_overrides + patch("routes.X.db") |
 | 2b | E2E framework: Playwright for rider-app web | ✅ | rider-app/playwright.config.ts + e2e/fixtures.ts; mocks /api/v1/** + Google Maps + Firebase; CI job `rider-web-e2e` added |
 | 2c | E2E: full ride cycle smoke test (mock backend) | ✅ | e2e/ride-booking.spec.ts walks 5 stages (searching → driver_assigned → driver_arrived → in_progress → completed) |
-| 2d | Performance baseline: API P95 latency, WS round-trip | 🔲 | |
+| 2d | Performance baseline: API P95 latency, WS round-trip | ✅ | perf_baseline.py: in-process ASGI bench; HTTP P95 ≤7ms, WS P95 ≤8ms; CI job `perf-baseline` saves artifact + regresses at +30% |
 
 ### Decisions
 | ID | Decision |
@@ -112,6 +112,7 @@ _(to be recorded as sprint progresses)_
 - [x] `rider-app/e2e/smoke.spec.ts`
 - [x] `rider-app/e2e/ride-booking.spec.ts`
 - [x] CI job `rider-web-e2e` in `.github/workflows/ci.yml`
+- [x] `backend/tests/perf_baseline.py` (HTTP P95 + WS round-trip; CI job `perf-baseline`)
 
 ---
 
