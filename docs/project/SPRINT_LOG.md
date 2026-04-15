@@ -65,14 +65,14 @@ admin auth, test suite). This session's goal: ship everything remaining.
 ## SPR-01 — Feature Completeness
 **Date:** 2026-04-14 (started)  
 **Branch:** `feat/SPR-01-feature-completeness` (to be created)  
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 
 ### Tasks
 | ID | Task | Status | Notes |
 |---|---|---|---|
-| 1a | Fix driver chat.tsx (syntax bug + polling → driverStore WS) | 🔲 | |
-| 1b | Deprecate frontend/; configure rider-app web target | 🔲 | |
-| 1c | Port 8 missing screens to rider-app | 🔲 | wallet, manage-cards, promotions, saved-places, scheduled-rides, privacy-settings, emergency-contacts, fare-split |
+| 1a | Fix driver chat.tsx (syntax bug + polling → driverStore WS) | ✅ | commit 36b8a66; driverStore WS subscription replaces 10s poll |
+| 1b | Deprecate frontend/; configure rider-app web target | ✅ | frontend/DEPRECATED.md written; app.config.ts has web:{bundler:metro}; CI deploy-frontend builds from rider-app/ |
+| 1c | Port 8 missing screens to rider-app | ✅ | All 8 screens already present with useTheme() + real API calls |
 | 1d | Dark mode (ThemeContext + all screens) | ✅ | shared/theme/; all ~70 screens migrated |
 | 1e | Offline mode (AsyncStorage persistence) | ✅ | rideStore + driverStore write-through; hydrateActiveRide / hydrateDriverRideState on mount |
 | 1f | Legal text wire-up | ✅ | settings_router was never mounted in server.py; fixed + dual-mount at root + /api/v1 |
