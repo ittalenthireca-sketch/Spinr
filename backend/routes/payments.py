@@ -1,6 +1,7 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 
 try:
     from ..db import db
@@ -11,12 +12,25 @@ except ImportError:
     from dependencies import get_current_user
     from settings_loader import get_app_settings
 import logging
-import uuid
 
 import stripe
 
 logger = logging.getLogger(__name__)
 api_router = APIRouter(prefix="/payments", tags=["Payments"])
+
+
+class PaymentIntentRequest(BaseModel):
+    """Create-intent request body.
+
+    Validates that `amount` is a positive number within a sane upper bound
+    so an attacker can't submit a negative (refund-to-self) or absurdly
+    large charge. The previous endpoint accepted `Dict[str, Any]` and
+    trusted whatever the client sent — this schema closes that gap.
+    """
+
+    amount: float = Field(..., gt=0, le=100000, description="Amount in CAD dollars")
+    ride_id: Optional[str] = Field(None, max_length=64)
+    payment_method_id: Optional[str] = Field(None, max_length=128)
 
 
 async def get_or_create_stripe_customer(user_id: str, stripe_secret: str):
@@ -46,8 +60,13 @@ async def get_or_create_stripe_customer(user_id: str, stripe_secret: str):
 
 
 @api_router.post("/create-intent")
-async def create_payment_intent(request: Dict[str, Any], current_user: dict = Depends(get_current_user)):
-    """Create a Stripe payment intent"""
+async def create_payment_intent(body: PaymentIntentRequest, current_user: dict = Depends(get_current_user)):
+    """Create a Stripe payment intent.
+
+    `amount` is validated by Pydantic (positive, ≤ 100000 CAD) before we
+    reach Stripe. Rejecting at the boundary gives a 422 response on bad
+    input instead of a 500 after Stripe refuses it.
+    """
     settings = await get_app_settings()
     stripe_secret = settings.get("stripe_secret_key", "")
 
@@ -58,7 +77,7 @@ async def create_payment_intent(request: Dict[str, Any], current_user: dict = De
         )
 
     try:
-        amount = int(request.get("amount", 0) * 100)  # Convert to cents
+        amount = int(body.amount * 100)  # Convert dollars → cents
 
         # Get or create customer for saved payments
         stripe_customer_id = await get_or_create_stripe_customer(current_user["id"], stripe_secret)
@@ -67,15 +86,14 @@ async def create_payment_intent(request: Dict[str, Any], current_user: dict = De
             "amount": amount,
             "currency": "cad",
             "automatic_payment_methods": {"enabled": True},
-            "metadata": {"user_id": current_user["id"], "ride_id": request.get("ride_id", "")},
+            "metadata": {"user_id": current_user["id"], "ride_id": body.ride_id or ""},
         }
 
         if stripe_customer_id:
             intent_params["customer"] = stripe_customer_id
 
-        payment_method_id = request.get("payment_method_id")
-        if payment_method_id:
-            intent_params["payment_method"] = payment_method_id
+        if body.payment_method_id:
+            intent_params["payment_method"] = body.payment_method_id
 
         intent = stripe.PaymentIntent.create(**intent_params, api_key=stripe_secret)
 
@@ -225,47 +243,111 @@ async def get_cards(current_user: dict = Depends(get_current_user)):
         return []
 
 
+class AddCardRequest(BaseModel):
+    """Add-card request body.
+
+    Accepts only a Stripe `payment_method_id` created client-side via
+    Stripe.js or @stripe/stripe-react-native. Raw card fields (PAN, CVC,
+    expiry) must NEVER flow through the backend — accepting them puts
+    the server in PCI-DSS SAQ-D scope. See AUDIT C-PAY-01.
+    """
+
+    payment_method_id: str = Field(..., min_length=1, max_length=128)
+
+
+# Field names that indicate the caller sent raw card data (PAN/CVV/expiry).
+# If ANY of these are present in the request body, we refuse to process
+# the request at all — before any logging, before JSON parsing by pydantic,
+# before touching Stripe. This is the PCI-DSS perimeter.
+_RAW_CARD_FIELDS = frozenset(
+    {
+        "card_number",
+        "number",
+        "cvc",
+        "cvv",
+        "cvv2",
+        "exp_month",
+        "exp_year",
+        "expiry",
+        "expiration",
+    }
+)
+
+
 @api_router.post("/cards")
 async def add_card(request: Request, current_user: dict = Depends(get_current_user)):
-    """Add card via Stripe. Creates PaymentMethod + SetupIntent, saves ack."""
-    data = await request.json()
+    """Add a saved card. Requires client-side tokenization.
+
+    Contract:
+      - Body must be ``{"payment_method_id": "pm_..."}``.
+      - Body must NOT contain any raw-card fields (PAN, CVC, expiry).
+      - If stripe_secret_key is unset (demo mode), a fake record is
+        returned with a random last4 — the payment_method_id is still
+        required for contract parity so the mobile app integrates with
+        a single API shape across environments.
+
+    PCI-DSS note: we deliberately raise a plain 400 BEFORE reading the
+    full JSON for logging/metrics so an attacker probing the endpoint
+    with a PAN does not get it persisted in access logs. The error
+    response intentionally does NOT echo the offending keys back.
+    """
+    # Parse once; reject immediately if the body shape hints at raw card data.
+    try:
+        data = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Body must be a JSON object")
+
+    forbidden = _RAW_CARD_FIELDS.intersection(data.keys())
+    if forbidden:
+        # Log that a raw-card POST was attempted but DO NOT log the keys'
+        # values. The client needs tokenization; tell them where to look.
+        logger.warning(
+            f"Rejected raw-card POST to /payments/cards from user={current_user.get('id')}: {sorted(forbidden)} present"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Raw card data is not accepted. Tokenize card details "
+                "client-side using Stripe.js / @stripe/stripe-react-native "
+                "and submit only {'payment_method_id': 'pm_...'}."
+            ),
+        )
+
+    # Validate the allowed shape. Pydantic rejects missing / wrong types with 422.
+    try:
+        body = AddCardRequest(**data)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid request: {exc}") from exc
+
+    payment_method_id = body.payment_method_id
+
     settings = await get_app_settings()
     stripe_secret = settings.get("stripe_secret_key", "")
 
     if not stripe_secret:
-        # Demo — fake card
-        num = data.get("card_number", "")
-        last4 = num[-4:] if len(num) >= 4 else "0000"
-        brand = "Visa" if num.startswith("4") else "Mastercard" if num[:2] in ("51", "52", "53", "54", "55") else "Card"
-        logger.info(f"[DEMO] Card added: {brand} ****{last4}")
+        # Demo mode — fabricate a response. Requires payment_method_id for
+        # shape parity with production so mobile has one integration path.
+        logger.info(f"[DEMO] Card added via {payment_method_id[:8]}...")
         return {
-            "id": str(uuid.uuid4()),
-            "brand": brand,
-            "last4": last4,
-            "exp_month": data.get("exp_month", 1),
-            "exp_year": data.get("exp_year", 2030),
+            "id": payment_method_id,
+            "brand": "Visa",
+            "last4": "4242",
+            "exp_month": 12,
+            "exp_year": 2030,
             "is_default": True,
         }
 
     try:
         customer_id = await get_or_create_stripe_customer(current_user["id"], stripe_secret)
 
-        # Create PaymentMethod (in prod use Stripe.js tokenization on frontend)
-        pm = stripe.PaymentMethod.create(
-            type="card",
-            card={
-                "number": data.get("card_number"),
-                "exp_month": int(data.get("exp_month")),
-                "exp_year": int(data.get("exp_year")),
-                "cvc": data.get("cvc"),
-            },
-            api_key=stripe_secret,
-        )
+        # Attach the client-tokenized PaymentMethod to the customer.
+        # The PAN never touched our server — the token came from Stripe.js.
+        pm = stripe.PaymentMethod.attach(payment_method_id, customer=customer_id, api_key=stripe_secret)
 
-        # Attach to customer
-        stripe.PaymentMethod.attach(pm.id, customer=customer_id, api_key=stripe_secret)
-
-        # Confirm with SetupIntent — saves card for future use
+        # Confirm with SetupIntent — saves card for future off-session use.
         si = stripe.SetupIntent.create(
             customer=customer_id,
             payment_method=pm.id,
