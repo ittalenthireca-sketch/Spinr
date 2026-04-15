@@ -3,10 +3,10 @@ from decimal import ROUND_HALF_UP, Decimal
 from fastapi import APIRouter, Query
 
 try:
-    from ..db import db
+    from .. import db_supabase
     from ..geo_utils import get_service_area_polygon, point_in_polygon
 except ImportError:
-    from db import db
+    import db_supabase
     from geo_utils import get_service_area_polygon, point_in_polygon
 
 api_router = APIRouter(tags=["Fares"])
@@ -26,7 +26,7 @@ def serialize_doc(doc):
 
 @api_router.get("/vehicle-types")
 async def get_vehicle_types():
-    types = await db.vehicle_types.find({"is_active": True}).to_list(100)
+    types = await db_supabase.get_rows("vehicle_types", {"is_active": True}, limit=100)
     return serialize_doc(types)
 
 
@@ -37,7 +37,7 @@ async def get_fares_for_location(lat: float = Query(...), lng: float = Query(...
     logger = logging.getLogger(__name__)
 
     # Fetch all active vehicle types (needed for both paths)
-    vehicle_types = await db.vehicle_types.find({"is_active": True}).to_list(100)
+    vehicle_types = await db_supabase.get_rows("vehicle_types", {"is_active": True}, limit=100)
     logger.info(f"Fares: Found {len(vehicle_types)} active vehicle types")
 
     if not vehicle_types:
@@ -64,7 +64,7 @@ async def get_fares_for_location(lat: float = Query(...), lng: float = Query(...
         ]
 
     # Try to find matching service area
-    all_areas = await db.service_areas.find({"is_active": True}).to_list(100)
+    all_areas = await db_supabase.get_rows("service_areas", {"is_active": True}, limit=100)
     matching_area = None
     for area in all_areas:
         poly = get_service_area_polygon(area)
@@ -80,7 +80,7 @@ async def get_fares_for_location(lat: float = Query(...), lng: float = Query(...
     surge = matching_area.get("surge_multiplier", 1.0)
 
     # Try to get fare_configs for this service area
-    fares = await db.fare_configs.find({"service_area_id": matching_area["id"], "is_active": True}).to_list(100)
+    fares = await db_supabase.get_rows("fare_configs", {"service_area_id": matching_area["id"], "is_active": True}, limit=100)
 
     if not fares:
         # No fare configs for this area — fall back to defaults with area surge

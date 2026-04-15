@@ -8,10 +8,10 @@ from pydantic import BaseModel
 
 try:
     from ...core.config import settings
-    from ...db import db
+    from ... import db_supabase
 except ImportError:
     from core.config import settings
-    from db import db
+    import db_supabase
 
 logger = logging.getLogger(__name__)
 
@@ -129,16 +129,13 @@ async def admin_login(request: LoginRequest):
         }
 
     # 2. Staff member
-    staff = await db.admin_staff.find_one({"email": request.email.lower()})
+    staff = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("admin_staff", {"email": request.email.lower()}, limit=1))
     if staff:
         pw_hash = hashlib.sha256(request.password.encode()).hexdigest()
         if staff.get("password_hash") == pw_hash:
             if not staff.get("is_active", True):
                 raise HTTPException(status_code=403, detail="Account is deactivated")
-            await db.admin_staff.update_one(
-                {"id": staff["id"]},
-                {"$set": {"last_login": datetime.utcnow().isoformat()}},
-            )
+ await db_supabase.update_one("admin_staff", {"id": staff["id"]}, {"last_login": datetime.utcnow().isoformat()})
             modules = staff.get("modules", ["dashboard"])
             token = jwt.encode(
                 {

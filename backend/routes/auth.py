@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 try:
-    from ..db import db
+    from .. import db_supabase
     from ..dependencies import (
         OTP_EXPIRY_MINUTES,
         create_jwt_token,
@@ -11,7 +11,7 @@ try:
     from ..schemas import AuthResponse, OTPRecord, SendOTPRequest, UserProfile, VerifyOTPRequest
     from ..sms_service import send_otp_sms
 except ImportError:
-    from db import db
+    import db_supabase
     from dependencies import (
         OTP_EXPIRY_MINUTES,
         create_jwt_token,
@@ -62,8 +62,8 @@ async def send_otp(request: Request, body: SendOTPRequest):
     )
 
     try:
-        await db.otp_records.delete_many({"phone": phone})
-        await db.otp_records.insert_one(otp_record.dict())
+        await db_supabase.delete_many("otp_records", {"phone": phone})
+        await db_supabase.insert_otp_record(otp_record.dict())
     except Exception as e:
         logger.warning(f"Could not store OTP in DB: {e}")
 
@@ -95,7 +95,7 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
 
     otp_record = None
     try:
-        otp_record = await db.otp_records.find_one({"phone": phone, "code": code, "verified": False})
+        otp_record = await db_supabase.get_otp_record(phone, code)
     except Exception as e:
         logger.warning(f"Could not query OTP from DB: {e}")
 
@@ -128,13 +128,13 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
 
     if datetime.now(timezone.utc) > expires_at:
         try:
-            await db.otp_records.delete_one({"id": otp_record["id"]})
+            await db_supabase.delete_otp_record(otp_record["id"])
         except Exception:  # noqa: S110
             pass
         raise HTTPException(status_code=400, detail="OTP has expired")
 
     try:
-        await db.otp_records.update_one({"id": otp_record["id"]}, {"$set": {"verified": True}})
+        await db_supabase.update_one("otp_records", {"id": otp_record["id"]}, {"verified": True})
     except Exception:  # noqa: S110
         pass
 
@@ -143,7 +143,7 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
         existing_user = None
         try:
             logger.info(f"Searching for user with phone: {phone}")
-            existing_user = await db.users.find_one({"phone": phone})
+            existing_user = await db_supabase.get_user_by_phone(phone)
             logger.info(f"User search result found: {bool(existing_user)}")
         except Exception as e:
             logger.warning(f"Could not query user from DB: {e}")
@@ -152,7 +152,7 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
             logger.info("User exists, creating token")
             session_id = str(uuid.uuid4())
             try:
-                await db.users.update_one({"id": existing_user["id"]}, {"$set": {"current_session_id": session_id}})
+                await db_supabase.update_one("users", {"id": existing_user["id"]}, {"current_session_id": session_id})
                 existing_user["current_session_id"] = session_id
             except Exception as e:
                 logger.warning(f"Could not update current_session_id in DB: {e}")
@@ -181,7 +181,7 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
                 "current_session_id": session_id,
             }
             try:
-                await db.users.insert_one(new_user)
+                await db_supabase.create_user(new_user)
             except Exception as e:
                 logger.warning(f"Could not create user in DB: {e}")
             token = create_jwt_token(user_id, phone, session_id=session_id)
@@ -219,10 +219,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     if has_profile_data and not current_user.get("profile_complete"):
         # Self-heal the column so the next login is fast and consistent.
         try:
-            await db.users.update_one(
-                {"id": current_user["id"]},
-                {"$set": {"profile_complete": True}},
-            )
+ await db_supabase.update_one("users", {"id": current_user["id"]}, {"profile_complete": True})
         except Exception as e:
             logger.warning(f"Could not self-heal profile_complete for {current_user.get('id')}: {e}")
         current_user["profile_complete"] = True

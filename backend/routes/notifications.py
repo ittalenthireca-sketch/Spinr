@@ -11,10 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 try:
-    from ..db import db
+    from .. import db_supabase
     from ..dependencies import get_current_user
 except ImportError:
-    from db import db
+    import db_supabase
     from dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -49,19 +49,12 @@ async def register_push_token(request: Request, current_user: dict = Depends(get
         raise HTTPException(status_code=400, detail="Token is required")
 
     # Upsert: one token per user per platform
-    existing = await db.push_tokens.find_one(
-        {
-            "user_id": current_user["id"],
-            "platform": platform,
-        }
-    )
+ existing = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("push_tokens", { "user_id": current_user["id"], "platform": platform, }, limit=1))
 
     if existing:
-        await db.push_tokens.update_one(
-            {"id": existing["id"]}, {"$set": {"token": token, "updated_at": datetime.utcnow().isoformat()}}
-        )
+ await db_supabase.update_one("push_tokens", {"id": existing["id"]}, {"token": token, "updated_at": datetime.utcnow().isoformat()})
     else:
-        await db.push_tokens.insert_one(
+        await db_supabase.insert_one("push_tokens", 
             {
                 "id": str(uuid.uuid4()),
                 "user_id": current_user["id"],
@@ -87,7 +80,7 @@ async def get_notifications(
     if unread_only:
         filters["is_read"] = False
 
-    notifications = await db.get_rows(
+    notifications = await db_supabase.get_rows(
         "notifications",
         filters,
         order="created_at",
@@ -99,7 +92,7 @@ async def get_notifications(
     # Count unread
     unread_count = 0
     try:
-        unread_count = await db.notifications.count_documents({"user_id": current_user["id"], "is_read": False})
+        unread_count = await db_supabase.count_documents("notifications", {"user_id": current_user["id"], "is_read": False})
     except Exception:  # noqa: S110
         pass
 
@@ -109,27 +102,21 @@ async def get_notifications(
 @api_router.put("/{notification_id}/read")
 async def mark_as_read(notification_id: str, current_user: dict = Depends(get_current_user)):
     """Mark a single notification as read."""
-    await db.notifications.update_one(
-        {"id": notification_id, "user_id": current_user["id"]},
-        {"$set": {"is_read": True, "read_at": datetime.utcnow().isoformat()}},
-    )
+ await db_supabase.update_one("notifications", {"id": notification_id, "user_id": current_user["id"]}, {"is_read": True, "read_at": datetime.utcnow().isoformat()})
     return {"success": True}
 
 
 @api_router.put("/read-all")
 async def mark_all_read(current_user: dict = Depends(get_current_user)):
     """Mark all notifications as read for the current user."""
-    await db.notifications.update_many(
-        {"user_id": current_user["id"], "is_read": False},
-        {"$set": {"is_read": True, "read_at": datetime.utcnow().isoformat()}},
-    )
+ await db_supabase.update_one("notifications", {"user_id": current_user["id"], "is_read": False}, {"is_read": True, "read_at": datetime.utcnow().isoformat()})
     return {"success": True}
 
 
 @api_router.get("/preferences")
 async def get_preferences(current_user: dict = Depends(get_current_user)):
     """Get user's notification preferences."""
-    prefs = await db.notification_preferences.find_one({"user_id": current_user["id"]})
+    prefs = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("notification_preferences", {"user_id": current_user["id"]}, limit=1))
     if not prefs:
         # Return defaults
         return {
@@ -159,13 +146,13 @@ async def update_preferences(req: PreferencesUpdate, current_user: dict = Depend
         if val is not None:
             update_data[field] = val
 
-    existing = await db.notification_preferences.find_one({"user_id": current_user["id"]})
+    existing = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("notification_preferences", {"user_id": current_user["id"]}, limit=1))
     if existing:
-        await db.notification_preferences.update_one({"user_id": current_user["id"]}, {"$set": update_data})
+        await db_supabase.update_one("notification_preferences", {"user_id": current_user["id"]}, update_data)
     else:
         update_data["id"] = str(uuid.uuid4())
         update_data["user_id"] = current_user["id"]
-        await db.notification_preferences.insert_one(update_data)
+        await db_supabase.insert_one("notification_preferences", update_data)
 
     return {"success": True}
 
@@ -191,5 +178,5 @@ async def create_notification(
         "is_read": False,
         "created_at": datetime.utcnow().isoformat(),
     }
-    await db.notifications.insert_one(notification)
+    await db_supabase.insert_one("notifications", notification)
     return notification

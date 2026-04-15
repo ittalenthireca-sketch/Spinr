@@ -5,9 +5,9 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException
 
 try:
-    from ...db import db
+    from ... import db_supabase
 except ImportError:
-    from db import db
+    import db_supabase
 
 logger = logging.getLogger(__name__)
 
@@ -33,23 +33,23 @@ async def admin_get_users(
             {"phone": {"$regex": search, "$options": "i"}},
         ]
 
-    users = await db.get_rows("users", filters, order="created_at", desc=True, limit=limit, offset=offset)
+    users = await db_supabase.get_rows("users", filters, order="created_at", desc=True, limit=limit, offset=offset)
     return users
 
 
 @router.get("/users/{user_id}")
 async def admin_get_user_details(user_id: str):
     """Get detailed user information."""
-    user = await db.users.find_one({"id": user_id})
+    user = await db_supabase.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     # Get user's recent rides
-    rides = await db.get_rows("rides", {"rider_id": user_id}, order="created_at", desc=True, limit=10)
+    rides = await db_supabase.get_rows("rides", {"rider_id": user_id}, order="created_at", desc=True, limit=10)
 
     return {
         **user,
-        "total_rides": await db.rides.count_documents({"rider_id": user_id}),
+        "total_rides": await db_supabase.count_documents("rides", {"rider_id": user_id}),
         "recent_rides": rides,
     }
 
@@ -63,8 +63,5 @@ async def admin_update_user_status(user_id: str, status_data: Dict[str, Any]):
     if new_status not in valid_status:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_status}")
 
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"status": new_status, "updated_at": datetime.utcnow().isoformat()}},
-    )
+ await db_supabase.update_one("users", {"id": user_id}, {"status": new_status, "updated_at": datetime.utcnow().isoformat()})
     return {"message": f"User status updated to {new_status}"}
