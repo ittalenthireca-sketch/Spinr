@@ -82,4 +82,38 @@ _(to be recorded as sprint progresses)_
 
 ---
 
+## SPR-02 — Quality Gates
+**Date:** 2026-04-15 (started)
+**Branch:** `claude/complete-product-streamline-Zj6lW`
+**Status:** 🔄 In Progress
+
+### Tasks
+| ID | Task | Status | Notes |
+|---|---|---|---|
+| 2a | Backend integration tests: loyalty, quests, wallet, fare-split | ✅ | 77 new tests; full suite 356 passing; uses TestClient + dependency_overrides + patch("routes.X.db") |
+| 2b | E2E framework: Playwright for rider-app web | ✅ | rider-app/playwright.config.ts + e2e/fixtures.ts; mocks /api/v1/** + Google Maps + Firebase; CI job `rider-web-e2e` added |
+| 2c | E2E: full ride cycle smoke test (mock backend) | ✅ | e2e/ride-booking.spec.ts walks 5 stages (searching → driver_assigned → driver_arrived → in_progress → completed) |
+| 2d | Performance baseline: API P95 latency, WS round-trip | 🔲 | |
+
+### Decisions
+| ID | Decision |
+|---|---|
+| D-009 | Patch `routes.X.db` (not `backend.routes.X.db`) — server.py puts backend/ on sys.path |
+| D-010 | Cross-module patches required when a route uses `get_or_create_wallet` (patch both modules' `db`) |
+| D-011 | rider-app E2E runs against `expo export --platform web` output served by `npx serve` on :3002; no real network |
+
+### Deliverables
+- [x] `backend/tests/test_loyalty.py` (14 tests)
+- [x] `backend/tests/test_wallet.py` (15 tests)
+- [x] `backend/tests/test_quests.py` (25 tests)
+- [x] `backend/tests/test_fare_split.py` (23 tests)
+- [x] `rider-app/playwright.config.ts`
+- [x] `rider-app/e2e/fixtures.ts`
+- [x] `rider-app/e2e/smoke.spec.ts`
+- [x] `rider-app/e2e/ride-booking.spec.ts`
+- [x] CI job `rider-web-e2e` in `.github/workflows/ci.yml`
+
+---
+
 <!-- Add new sprints above this line, newest first -->
+

@@ -289,6 +289,59 @@ jobs:
           path: admin-dashboard/playwright-report/
           retention-days: 7
 
+  # E2E Tests — rider-app web (SPR-02/2b, 2c)
+  # Exports the Expo web build, serves it on :3002, and runs Playwright
+  # smoke + ride-booking tests with all backend calls mocked.
+  rider-web-e2e:
+    name: E2E tests (rider-app web)
+    runs-on: ubuntu-latest
+    needs: [rider-app-test]
+    if: github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory: rider-app
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Cache node modules
+        uses: actions/cache@v5
+        with:
+          path: rider-app/node_modules
+          key: ${{ runner.os }}-rider-node-${{ hashFiles('rider-app/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rider-node-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Expo web export
+        env:
+          EXPO_PUBLIC_BACKEND_URL: http://localhost:8000
+          EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: test-key
+        run: npx expo export --platform web
+
+      - name: Serve export and run E2E tests
+        env:
+          PLAYWRIGHT_START_SERVER: '1'
+          PLAYWRIGHT_PORT: '3002'
+          CI: 'true'
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rider-playwright-report
+          path: rider-app/playwright-report/
+          retention-days: 7
+
   # Deploy Backend
   deploy-backend:
     runs-on: ubuntu-latest
