@@ -41,9 +41,7 @@ def _fd(v: Any) -> float:
     return float(Decimal(str(v)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP))
 
 
-def build_default_fares(
-    vehicle_types: List[Dict[str, Any]], surge: float = 1.0
-) -> List[Dict[str, Any]]:
+def build_default_fares(vehicle_types: List[Dict[str, Any]], surge: float = 1.0) -> List[Dict[str, Any]]:
     """
     Build a default fare entry per vehicle type.
 
@@ -67,9 +65,7 @@ def build_default_fares(
     ]
 
 
-def find_service_area_for_point(
-    areas: List[Dict[str, Any]], lat: float, lng: float
-) -> Optional[Dict[str, Any]]:
+def find_service_area_for_point(areas: List[Dict[str, Any]], lat: float, lng: float) -> Optional[Dict[str, Any]]:
     """
     Return the first service area whose polygon contains (lat, lng), or None.
 
@@ -128,9 +124,7 @@ class FareService:
         """Fetch all active vehicle types."""
         return await self.db.vehicle_types.find({"is_active": True}).to_list(100)
 
-    async def fares_for_location(
-        self, lat: float, lng: float
-    ) -> List[Dict[str, Any]]:
+    async def fares_for_location(self, lat: float, lng: float) -> List[Dict[str, Any]]:
         """
         Compute the fare list for a given (lat, lng).
 
@@ -159,9 +153,7 @@ class FareService:
         if not fare_configs:
             return build_default_fares(vehicle_types, surge)
 
-        merged = merge_fare_configs_with_vehicle_types(
-            fare_configs, vehicle_types, surge
-        )
+        merged = merge_fare_configs_with_vehicle_types(fare_configs, vehicle_types, surge)
         if not merged:
             return build_default_fares(vehicle_types, surge)
 

@@ -4,6 +4,7 @@ Fare-related HTTP routes.
 Business logic lives in `services/fare_service.py`. This file should remain
 thin: validate input, delegate, return.
 """
+
 import logging
 
 from fastapi import APIRouter, Query

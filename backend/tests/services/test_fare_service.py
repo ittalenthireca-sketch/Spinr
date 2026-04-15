@@ -5,6 +5,7 @@ These tests exercise the pure helpers directly and the class methods with
 a mocked db. No real Supabase, no FastAPI - this is the value of having
 a service layer.
 """
+
 import os
 import sys
 from unittest.mock import AsyncMock, MagicMock
@@ -21,7 +22,6 @@ from services.fare_service import (  # noqa: E402
     find_service_area_for_point,
     merge_fare_configs_with_vehicle_types,
 )
-
 
 # ── Pure helpers ──────────────────────────────────────────────────────────────
 
@@ -159,56 +159,68 @@ class TestFareService:
         assert out == []
 
     async def test_returns_defaults_when_no_matching_area(self):
-        svc = FareService(_make_db(
-            vehicle_types=[{"id": "economy", "name": "Economy"}],
-            areas=[],  # no service areas
-        ))
+        svc = FareService(
+            _make_db(
+                vehicle_types=[{"id": "economy", "name": "Economy"}],
+                areas=[],  # no service areas
+            )
+        )
         out = await svc.fares_for_location(52.0, -106.0)
         assert len(out) == 1
         assert out[0]["base_fare"] == _fd(DEFAULT_FARE["base_fare"])
         assert out[0]["surge_multiplier"] == 1.00
 
     async def test_returns_defaults_with_surge_when_no_fare_configs(self):
-        svc = FareService(_make_db(
-            vehicle_types=[{"id": "economy"}],
-            areas=[{
-                "id": "saskatoon",
-                "surge_multiplier": 1.5,
-                "polygon": [
-                    {"lat": 51.5, "lng": -106.5},
-                    {"lat": 51.5, "lng": -105.5},
-                    {"lat": 52.5, "lng": -105.5},
-                    {"lat": 52.5, "lng": -106.5},
+        svc = FareService(
+            _make_db(
+                vehicle_types=[{"id": "economy"}],
+                areas=[
+                    {
+                        "id": "saskatoon",
+                        "surge_multiplier": 1.5,
+                        "polygon": [
+                            {"lat": 51.5, "lng": -106.5},
+                            {"lat": 51.5, "lng": -105.5},
+                            {"lat": 52.5, "lng": -105.5},
+                            {"lat": 52.5, "lng": -106.5},
+                        ],
+                    }
                 ],
-            }],
-            fare_configs=[],
-        ))
+                fare_configs=[],
+            )
+        )
         out = await svc.fares_for_location(52.0, -106.0)
         assert len(out) == 1
         assert out[0]["surge_multiplier"] == 1.50
 
     async def test_returns_merged_when_fare_configs_match(self):
-        svc = FareService(_make_db(
-            vehicle_types=[{"id": "economy", "name": "Economy"}],
-            areas=[{
-                "id": "saskatoon",
-                "surge_multiplier": 1.0,
-                "polygon": [
-                    {"lat": 51.5, "lng": -106.5},
-                    {"lat": 51.5, "lng": -105.5},
-                    {"lat": 52.5, "lng": -105.5},
-                    {"lat": 52.5, "lng": -106.5},
+        svc = FareService(
+            _make_db(
+                vehicle_types=[{"id": "economy", "name": "Economy"}],
+                areas=[
+                    {
+                        "id": "saskatoon",
+                        "surge_multiplier": 1.0,
+                        "polygon": [
+                            {"lat": 51.5, "lng": -106.5},
+                            {"lat": 51.5, "lng": -105.5},
+                            {"lat": 52.5, "lng": -105.5},
+                            {"lat": 52.5, "lng": -106.5},
+                        ],
+                    }
                 ],
-            }],
-            fare_configs=[{
-                "vehicle_type_id": "economy",
-                "base_fare": 5.0,
-                "per_km_rate": 2.0,
-                "per_minute_rate": 0.4,
-                "minimum_fare": 12.0,
-                "booking_fee": 3.0,
-            }],
-        ))
+                fare_configs=[
+                    {
+                        "vehicle_type_id": "economy",
+                        "base_fare": 5.0,
+                        "per_km_rate": 2.0,
+                        "per_minute_rate": 0.4,
+                        "minimum_fare": 12.0,
+                        "booking_fee": 3.0,
+                    }
+                ],
+            )
+        )
         out = await svc.fares_for_location(52.0, -106.0)
         assert len(out) == 1
         assert out[0]["base_fare"] == 5.00
