@@ -31,10 +31,10 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -76,7 +76,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v6
         with:
           file: ./backend/coverage.xml
           flags: backend
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -116,7 +116,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v6
         with:
           file: ./frontend/coverage/coverage-final.json
           flags: frontend
@@ -127,7 +127,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -152,7 +152,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v6
         with:
           file: ./driver-app/coverage/coverage-final.json
           flags: driver-app
@@ -165,7 +165,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -190,7 +190,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v6
         with:
           file: ./rider-app/coverage/coverage-final.json
           flags: rider-app
@@ -201,7 +201,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -240,13 +240,13 @@ jobs:
   e2e-test:
     name: E2E tests (Playwright)
     runs-on: ubuntu-latest
-    needs: [backend-test]
+    needs: [backend-test, admin-test]
     if: github.ref == 'refs/heads/main'
     defaults:
       run:
         working-directory: admin-dashboard
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v6
         with:
@@ -276,7 +276,7 @@ jobs:
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: admin-dashboard/playwright-report/
@@ -289,7 +289,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Deploy to Render
         env:
@@ -302,7 +302,7 @@ jobs:
 
       - name: Deploy to Fly.io (alternative)
         if: failure()
-        uses: superfly/flyctl-actions@1.3
+        uses: superfly/flyctl-actions@1.6
         with:
           args: "deploy --remote-only"
         env:
@@ -315,7 +315,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -347,7 +347,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -377,7 +377,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[build]')
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Setup EAS
         uses: expo/expo-github-action@v8
@@ -404,7 +404,7 @@ jobs:
       security-events: write  # required for Trivy SARIF upload to GitHub Security tab
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # full history required for trufflehog --since-commit
 
@@ -442,7 +442,7 @@ jobs:
     needs: [backend-test]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Build backend Docker image
         run: |
@@ -455,19 +455,9 @@ jobs:
         uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: spinr-backend:ci-${{ github.sha }}
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
-      - name: Upload SARIF report
-        if: always()
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          image-ref: spinr-backend:ci-${{ github.sha }}
           format: 'sarif'
           output: 'trivy-image.sarif'
+          exit-code: '1'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
@@ -525,7 +515,7 @@ jobs:
       issues: write
     steps:
       - name: Create failure issue
-        uses: actions/github-script@v9
+        uses: actions/github-script@v7
         with:
           script: |
             await github.rest.issues.create({
@@ -540,3 +530,20 @@ jobs:
               ].join('\n'),
               labels: ['ci-failure', 'auto']
             })
+
+  # Notify on successful deploy to main
+  notify-deploy:
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-frontend, deploy-admin]
+    if: success() && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Send Slack deploy success notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+          text: |
+            :rocket: *Spinr deployed to production*
+            Commit: `${{ github.sha }}` by ${{ github.actor }}
+            <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>
