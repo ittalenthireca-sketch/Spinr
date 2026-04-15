@@ -133,8 +133,33 @@ async def get_my_driver(current_user: dict = Depends(get_current_user)):
     return serialize_doc(driver)
 
 
+class UpdateDriverProfileRequest(BaseModel):
+    """Strict schema for driver profile updates — only whitelisted fields accepted."""
+
+    # Safe fields (no re-verification)
+    gst_number: Optional[str] = None
+    preferred_language: Optional[str] = None
+    photo_url: Optional[str] = None
+    # Vehicle/document fields (triggers re-review on verified drivers)
+    vehicle_type_id: Optional[str] = None
+    vehicle_make: Optional[str] = None
+    vehicle_model: Optional[str] = None
+    vehicle_color: Optional[str] = None
+    vehicle_year: Optional[int] = None
+    license_plate: Optional[str] = None
+    vehicle_vin: Optional[str] = None
+    license_number: Optional[str] = None
+    license_expiry_date: Optional[str] = None
+    insurance_expiry_date: Optional[str] = None
+    vehicle_inspection_expiry_date: Optional[str] = None
+    background_check_expiry_date: Optional[str] = None
+    work_eligibility_expiry_date: Optional[str] = None
+    city: Optional[str] = None
+    service_area_id: Optional[str] = None
+
+
 @api_router.put("/me")
-async def update_my_driver(body: dict = Body(...), current_user: dict = Depends(get_current_user)):
+async def update_my_driver(body: UpdateDriverProfileRequest, current_user: dict = Depends(get_current_user)):
     """Update the current user's driver profile.
 
     Accepts vehicle info, personal details, and preferences. When a
@@ -165,7 +190,7 @@ async def update_my_driver(body: dict = Body(...), current_user: dict = Depends(
     }
     allowed_fields = safe_fields | vehicle_fields
 
-    updates = {k: v for k, v in body.items() if k in allowed_fields and v is not None}
+    updates = {k: v for k, v in body.model_dump(exclude_none=True).items() if k in allowed_fields}
     if not updates:
         return {"success": True}
 
@@ -349,10 +374,9 @@ async def register_driver_push_token(
 
     The driver-app's useDriverDashboard.ts calls this with an Expo push
     token from Notifications.getExpoPushTokenAsync(). We store it on the
-    user row. Note: features.py:send_push_notification currently uses
-    Firebase Admin SDK and expects a native FCM token, so Expo push tokens
-    won't deliver via that path. TODO: add Expo push service support or
-    convert Expo tokens server-side via Expo's /push/send API.
+    user row. features.py:send_push_notification detects Expo tokens
+    (ExponentPushToken[...]) and routes them via Expo's /push/send API;
+    native FCM tokens are sent via Firebase Admin SDK.
     """
     diag_logger.info(
         f"[PUSH-TOKEN] register user_id={current_user.get('id')} "
@@ -394,6 +418,79 @@ async def update_driver_status_self(
     }
     await db.drivers.update_one({"id": driver["id"]}, {"$set": updates})
     return {"success": True, "is_online": is_online}
+
+
+# ── Destination Mode ─────────────────────────────────────────────────
+
+
+class SetDestinationRequest(BaseModel):
+    address: str
+    lat: float
+    lng: float
+
+
+@api_router.post("/destination")
+async def set_destination_mode(req: SetDestinationRequest, current_user: dict = Depends(get_current_user)):
+    """Set driver's preferred destination. Ride matching will prioritize
+    rides heading toward this destination to reduce empty miles."""
+    driver = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    await db.drivers.update_one(
+        {"id": driver["id"]},
+        {
+            "$set": {
+                "destination_mode": True,
+                "destination_address": req.address,
+                "destination_lat": req.lat,
+                "destination_lng": req.lng,
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+        },
+    )
+    return {
+        "success": True,
+        "destination_mode": True,
+        "destination_address": req.address,
+    }
+
+
+@api_router.delete("/destination")
+async def clear_destination_mode(current_user: dict = Depends(get_current_user)):
+    """Clear driver's destination mode."""
+    driver = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    await db.drivers.update_one(
+        {"id": driver["id"]},
+        {
+            "$set": {
+                "destination_mode": False,
+                "destination_address": None,
+                "destination_lat": None,
+                "destination_lng": None,
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+        },
+    )
+    return {"success": True, "destination_mode": False}
+
+
+@api_router.get("/destination")
+async def get_destination_mode(current_user: dict = Depends(get_current_user)):
+    """Get driver's current destination mode status."""
+    driver = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    return {
+        "destination_mode": driver.get("destination_mode", False),
+        "destination_address": driver.get("destination_address"),
+        "destination_lat": driver.get("destination_lat"),
+        "destination_lng": driver.get("destination_lng"),
+    }
 
 
 @api_router.get("/balance")
@@ -592,6 +689,265 @@ async def get_driver_trip_earnings(
         }
         for r in rides
     ]
+
+
+@api_router.get("/earnings/weekly")
+async def get_driver_weekly_earnings(weeks: int = Query(4), current_user: dict = Depends(get_current_user)):
+    """Get driver's weekly earnings breakdown."""
+    driver = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    start_date = datetime.utcnow() - timedelta(weeks=weeks)
+
+    # Try driver_daily_stats first (pre-aggregated)
+    try:
+        stats = await db.get_rows(
+            "driver_daily_stats",
+            {"driver_id": driver["id"], "stat_date": {"$gte": start_date.strftime("%Y-%m-%d")}},
+            order="stat_date",
+            limit=weeks * 7,
+        )
+    except Exception:
+        stats = []
+
+    if stats:
+        # Group by ISO week
+        weekly_data: dict = {}
+        for s in stats:
+            date_str = s.get("stat_date", "")[:10]
+            if not date_str:
+                continue
+            from datetime import date as date_type
+
+            d = date_type.fromisoformat(date_str)
+            iso_year, iso_week, _ = d.isocalendar()
+            week_key = f"{iso_year}-W{iso_week:02d}"
+            if week_key not in weekly_data:
+                # Monday of that ISO week
+                from datetime import timedelta as td
+
+                monday = d - td(days=d.weekday())
+                sunday = monday + td(days=6)
+                weekly_data[week_key] = {
+                    "week_start": monday.isoformat(),
+                    "week_end": sunday.isoformat(),
+                    "earnings": 0,
+                    "tips": 0,
+                    "rides": 0,
+                    "online_hours": 0,
+                    "distance_km": 0,
+                }
+            weekly_data[week_key]["earnings"] += s.get("total_earnings", 0) or 0
+            weekly_data[week_key]["tips"] += s.get("total_tips", 0) or 0
+            weekly_data[week_key]["rides"] += s.get("rides_completed", 0) or 0
+            weekly_data[week_key]["online_hours"] += round((s.get("online_minutes", 0) or 0) / 60, 1)
+            weekly_data[week_key]["distance_km"] += s.get("total_km", 0) or 0
+
+        return sorted(weekly_data.values(), key=lambda x: x["week_start"])
+
+    # Fallback: compute from rides table
+    try:
+        rides = await db.get_rows(
+            "rides",
+            {
+                "driver_id": driver["id"],
+                "status": "completed",
+                "ride_completed_at": {"$gte": start_date.isoformat()},
+            },
+            order="ride_completed_at",
+            limit=5000,
+        )
+
+        weekly_data = {}
+        for r in rides:
+            date_str = (r.get("ride_completed_at") or "")[:10]
+            if not date_str:
+                continue
+            from datetime import date as date_type
+
+            d = date_type.fromisoformat(date_str)
+            iso_year, iso_week, _ = d.isocalendar()
+            week_key = f"{iso_year}-W{iso_week:02d}"
+            if week_key not in weekly_data:
+                from datetime import timedelta as td
+
+                monday = d - td(days=d.weekday())
+                sunday = monday + td(days=6)
+                weekly_data[week_key] = {
+                    "week_start": monday.isoformat(),
+                    "week_end": sunday.isoformat(),
+                    "earnings": 0,
+                    "tips": 0,
+                    "rides": 0,
+                    "online_hours": 0,
+                    "distance_km": 0,
+                }
+            weekly_data[week_key]["earnings"] += r.get("driver_earnings", 0) or 0
+            weekly_data[week_key]["tips"] += r.get("tip_amount", 0) or 0
+            weekly_data[week_key]["rides"] += 1
+            weekly_data[week_key]["distance_km"] += r.get("distance_km", 0) or 0
+
+        return sorted(weekly_data.values(), key=lambda x: x["week_start"])
+    except Exception as e:
+        logger.error(f"Error fetching weekly earnings: {e}")
+        return []
+
+
+@api_router.get("/earnings/monthly")
+async def get_driver_monthly_earnings(months: int = Query(6), current_user: dict = Depends(get_current_user)):
+    """Get driver's monthly earnings breakdown."""
+    driver = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    start_date = datetime.utcnow() - timedelta(days=months * 30)
+
+    # Try driver_daily_stats first
+    try:
+        stats = await db.get_rows(
+            "driver_daily_stats",
+            {"driver_id": driver["id"], "stat_date": {"$gte": start_date.strftime("%Y-%m-%d")}},
+            order="stat_date",
+            limit=months * 31,
+        )
+    except Exception:
+        stats = []
+
+    if stats:
+        monthly_data: dict = {}
+        for s in stats:
+            date_str = s.get("stat_date", "")[:10]
+            if not date_str:
+                continue
+            month_key = date_str[:7]  # YYYY-MM
+            if month_key not in monthly_data:
+                monthly_data[month_key] = {
+                    "month": month_key,
+                    "year": int(month_key[:4]),
+                    "earnings": 0,
+                    "tips": 0,
+                    "rides": 0,
+                    "online_hours": 0,
+                    "distance_km": 0,
+                }
+            monthly_data[month_key]["earnings"] += s.get("total_earnings", 0) or 0
+            monthly_data[month_key]["tips"] += s.get("total_tips", 0) or 0
+            monthly_data[month_key]["rides"] += s.get("rides_completed", 0) or 0
+            monthly_data[month_key]["online_hours"] += round((s.get("online_minutes", 0) or 0) / 60, 1)
+            monthly_data[month_key]["distance_km"] += s.get("total_km", 0) or 0
+
+        return sorted(monthly_data.values(), key=lambda x: x["month"])
+
+    # Fallback: compute from rides table
+    try:
+        rides = await db.get_rows(
+            "rides",
+            {
+                "driver_id": driver["id"],
+                "status": "completed",
+                "ride_completed_at": {"$gte": start_date.isoformat()},
+            },
+            order="ride_completed_at",
+            limit=10000,
+        )
+
+        monthly_data = {}
+        for r in rides:
+            date_str = (r.get("ride_completed_at") or "")[:10]
+            if not date_str:
+                continue
+            month_key = date_str[:7]
+            if month_key not in monthly_data:
+                monthly_data[month_key] = {
+                    "month": month_key,
+                    "year": int(month_key[:4]),
+                    "earnings": 0,
+                    "tips": 0,
+                    "rides": 0,
+                    "online_hours": 0,
+                    "distance_km": 0,
+                }
+            monthly_data[month_key]["earnings"] += r.get("driver_earnings", 0) or 0
+            monthly_data[month_key]["tips"] += r.get("tip_amount", 0) or 0
+            monthly_data[month_key]["rides"] += 1
+            monthly_data[month_key]["distance_km"] += r.get("distance_km", 0) or 0
+
+        return sorted(monthly_data.values(), key=lambda x: x["month"])
+    except Exception as e:
+        logger.error(f"Error fetching monthly earnings: {e}")
+        return []
+
+
+@api_router.get("/earnings/comparison")
+async def get_driver_earnings_comparison(period: str = Query("week"), current_user: dict = Depends(get_current_user)):
+    """Compare current period earnings vs previous period."""
+    driver = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    now = datetime.utcnow()
+    if period == "week":
+        current_start = now - timedelta(days=7)
+        previous_start = now - timedelta(days=14)
+        previous_end = now - timedelta(days=7)
+    else:  # month
+        current_start = now - timedelta(days=30)
+        previous_start = now - timedelta(days=60)
+        previous_end = now - timedelta(days=30)
+
+    try:
+        # Current period
+        current_rides = await db.get_rows(
+            "rides",
+            {
+                "driver_id": driver["id"],
+                "status": "completed",
+                "ride_completed_at": {"$gte": current_start.isoformat()},
+            },
+            limit=5000,
+        )
+        # Previous period
+        all_rides = await db.get_rows(
+            "rides",
+            {
+                "driver_id": driver["id"],
+                "status": "completed",
+                "ride_completed_at": {"$gte": previous_start.isoformat()},
+            },
+            limit=10000,
+        )
+        previous_rides = [r for r in all_rides if r.get("ride_completed_at", "") < previous_end.isoformat()]
+    except Exception as e:
+        logger.error(f"Error fetching comparison: {e}")
+        current_rides = []
+        previous_rides = []
+
+    def summarize(rides):
+        return {
+            "earnings": sum(r.get("driver_earnings", 0) or 0 for r in rides),
+            "rides": len(rides),
+            "tips": sum(r.get("tip_amount", 0) or 0 for r in rides),
+        }
+
+    current = summarize(current_rides)
+    previous = summarize(previous_rides)
+
+    def pct_change(curr, prev):
+        if prev == 0:
+            return 100.0 if curr > 0 else 0.0
+        return round((curr - prev) / prev * 100, 1)
+
+    return {
+        "period": period,
+        "current": current,
+        "previous": previous,
+        "change_pct": {
+            "earnings": pct_change(current["earnings"], previous["earnings"]),
+            "rides": pct_change(current["rides"], previous["rides"]),
+            "tips": pct_change(current["tips"], previous["tips"]),
+        },
+    }
 
 
 @api_router.get("/nearby")
@@ -1116,6 +1472,24 @@ async def decline_ride(ride_id: str, current_user: dict = Depends(get_current_us
         },
     )
 
+    # Record the decline in audit_logs so daily stats can count it
+    try:
+        import uuid as _uuid
+
+        await db.audit_logs.insert_one(
+            {
+                "id": str(_uuid.uuid4()),
+                "action": "ride_declined",
+                "entity_type": "ride",
+                "entity_id": ride_id,
+                "user_email": driver["id"],  # reuse user_email column to store driver_id
+                "details": f"driver_id={driver['id']}",
+                "created_at": datetime.utcnow().isoformat(),
+            }
+        )
+    except Exception as _e:
+        logger.warning(f"Could not log ride decline to audit_logs: {_e}")
+
     # GAP FIX: Re-match to find the next available driver
     try:
         import asyncio
@@ -1399,6 +1773,15 @@ async def complete_ride(ride_id: str, current_user: dict = Depends(get_current_u
     # Update driver stats
     await db.drivers.update_one({"id": driver["id"]}, {"$inc": {"total_rides": 1}, "$set": {"is_available": True}})
 
+    # P1-09: Update quest progress for any active quests this driver has joined
+    try:
+        from utils.quest_tracker import update_quest_progress_on_ride_complete
+
+        completed_ride_data = await db.rides.find_one({"id": ride_id})
+        await update_quest_progress_on_ride_complete(driver["id"], completed_ride_data or ride)
+    except Exception as quest_err:
+        logger.warning(f"Quest progress update failed for ride {ride_id}: {quest_err}")
+
     completed_ride = await db.rides.find_one({"id": ride_id})
 
     if completed_ride and completed_ride.get("rider_id"):
@@ -1616,6 +1999,89 @@ async def get_referred_drivers(
             )
 
     return {"referred_drivers": referred_drivers[:limit]}
+
+
+# ── Leaderboard ──────────────────────────────────────────────────────
+
+
+@api_router.get("/leaderboard")
+async def get_driver_leaderboard(
+    period: str = Query("week", pattern="^(week|month|all)$"),
+    limit: int = Query(20, ge=1, le=100),
+    current_user: dict = Depends(get_current_user),
+):
+    """Get driver leaderboard rankings by rides, earnings, and rating.
+
+    Returns the top drivers for the specified period with the current
+    driver's rank highlighted.
+    """
+    driver = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    now = datetime.utcnow()
+    if period == "week":
+        start = (now - timedelta(days=7)).isoformat()
+    elif period == "month":
+        start = (now - timedelta(days=30)).isoformat()
+    else:
+        start = "2020-01-01"
+
+    try:
+        all_drivers = await db.drivers.find({}).to_list(500)
+    except Exception:
+        all_drivers = []
+
+    rankings = []
+    for d in all_drivers:
+        d_id = d["id"]
+        try:
+            rides = await db.get_rows(
+                "rides",
+                {"driver_id": d_id, "status": "completed"},
+                limit=1000,
+            )
+            period_rides = [
+                r for r in rides if isinstance(r.get("created_at", ""), str) and r.get("created_at", "") >= start
+            ]
+        except Exception:
+            period_rides = []
+
+        total_rides = len(period_rides)
+        total_earnings = sum(float(r.get("driver_earnings", 0) or 0) for r in period_rides)
+        total_tips = sum(float(r.get("tip_amount", 0) or 0) for r in period_rides)
+
+        user = await db.users.find_one({"id": d.get("user_id")})
+        name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else "Driver"
+
+        rankings.append(
+            {
+                "driver_id": d_id,
+                "name": name,
+                "rides": total_rides,
+                "earnings": round(total_earnings, 2),
+                "tips": round(total_tips, 2),
+                "rating": d.get("rating", 0),
+                "is_current_user": d_id == driver["id"],
+            }
+        )
+
+    # Sort by rides (primary), then earnings (secondary)
+    rankings.sort(key=lambda x: (x["rides"], x["earnings"]), reverse=True)
+
+    # Assign ranks
+    for i, r in enumerate(rankings):
+        r["rank"] = i + 1
+
+    # Find current driver's rank
+    my_rank = next((r for r in rankings if r["is_current_user"]), None)
+
+    return {
+        "period": period,
+        "leaderboard": rankings[:limit],
+        "my_rank": my_rank,
+        "total_drivers": len(rankings),
+    }
 
 
 # ─── Catch-all driver ID routes MUST be last to avoid shadowing named routes ───
@@ -2089,6 +2555,42 @@ async def subscribe_to_plan(request: Request, current_user: dict = Depends(get_c
     now = datetime.utcnow()
     expires = now + timedelta(days=plan.get("duration_days", 30))
 
+    # Attempt Stripe charge if configured; fall back gracefully if not.
+    payment_status = "paid"
+    stripe_charge_id = None
+    plan_price = plan.get("price", 0)
+    if plan_price and plan_price > 0:
+        try:
+            from ..settings_loader import get_app_settings
+
+            _settings = await get_app_settings()
+            _stripe_secret = _settings.get("stripe_secret_key", "")
+            if _stripe_secret:
+                stripe.api_key = _stripe_secret
+                # Use the driver's saved default payment method via their Stripe customer
+                _user = await db.users.find_one({"id": current_user["id"]})
+                _customer_id = _user.get("stripe_customer_id") if _user else None
+                if _customer_id:
+                    _amount_cents = int(float(plan_price) * 100)
+                    _charge = stripe.PaymentIntent.create(
+                        amount=_amount_cents,
+                        currency="cad",
+                        customer=_customer_id,
+                        confirm=True,
+                        off_session=True,
+                        metadata={"driver_id": driver["id"], "plan_id": plan["id"]},
+                    )
+                    stripe_charge_id = _charge.id
+                    payment_status = _charge.status  # "succeeded" | "requires_action" | …
+                    logger.info(f"Stripe charge {stripe_charge_id} status={payment_status} for driver {driver['id']}")
+                else:
+                    logger.info(f"No Stripe customer for driver {driver['id']}, marking paid without charge")
+            else:
+                logger.info("Stripe not configured; marking subscription paid without charge")
+        except Exception as _stripe_err:
+            logger.error(f"Stripe charge failed for driver {driver['id']}: {_stripe_err}")
+            raise HTTPException(status_code=402, detail=f"Payment failed: {_stripe_err}") from _stripe_err
+
     subscription = {
         "id": str(uuid.uuid4()),
         "driver_id": driver["id"],
@@ -2100,7 +2602,8 @@ async def subscribe_to_plan(request: Request, current_user: dict = Depends(get_c
         "status": "active",
         "started_at": now.isoformat(),
         "expires_at": expires.isoformat(),
-        "payment_status": "paid",
+        "payment_status": payment_status,
+        "stripe_charge_id": stripe_charge_id,
         "created_at": now.isoformat(),
     }
 

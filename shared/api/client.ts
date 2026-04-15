@@ -6,7 +6,7 @@ const isFirebaseConfigured = typeof auth.onAuthStateChanged === 'function';
 
 const API_URL = SpinrConfig.backendUrl;
 
-console.log('API Client configured with URL:', API_URL);
+if (__DEV__) console.log('API Client configured with URL:', API_URL);
 
 // Request timeout in milliseconds
 const REQUEST_TIMEOUT = 15000;
@@ -48,14 +48,14 @@ let _inMemoryToken: string | null = null;
 
 export function setInMemoryToken(token: string | null) {
   _inMemoryToken = token;
-  console.log('[API] In-memory token:', token ? 'SET' : 'CLEARED');
+  if (__DEV__) console.log('[API] In-memory token:', token ? 'SET' : 'CLEARED');
 }
 
 // Helper to get stored token
 const getStoredToken = async (): Promise<string | null> => {
   try {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      return localStorage.getItem('auth_token');
+      return sessionStorage.getItem('auth_token');
     } else {
       const SecureStore = require('expo-secure-store');
       const token = await SecureStore.getItemAsync('auth_token');
@@ -247,7 +247,7 @@ const client = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_URL}/api/v1${url}`, {
+    const response = await fetchWithTimeout(`${API_URL}/api/v1${url}`, {
       method: 'PUT',
       headers,
       body: body === undefined || body === null ? undefined : (isFormData ? body : JSON.stringify(body)),
@@ -269,7 +269,7 @@ const client = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_URL}/api/v1${url}`, {
+    const response = await fetchWithTimeout(`${API_URL}/api/v1${url}`, {
       method: 'PATCH',
       headers,
       body: body ? JSON.stringify(body) : undefined,
@@ -291,7 +291,7 @@ const client = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_URL}/api/v1${url}`, {
+    const response = await fetchWithTimeout(`${API_URL}/api/v1${url}`, {
       method: 'DELETE',
       headers,
     });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import api from '@shared/api/client';
 
 const PAYMENT_METHODS = [
   { id: 'card', name: 'Credit Card', icon: 'card', last4: '4242' },
+  { id: 'wallet', name: 'Spinr Wallet', icon: 'wallet', last4: '' },
 ];
 
 export default function PaymentConfirmScreen() {
@@ -42,12 +43,17 @@ export default function PaymentConfirmScreen() {
 
   const selectedEstimate = estimates.find((e) => e.vehicle_type.id === selectedVehicle?.id);
 
+  const isSubmitting = useRef(false);
   const handleBookRide = async () => {
+    if (isSubmitting.current) return;
+    isSubmitting.current = true;
     try {
       const ride = await createRide(selectedPayment);
       router.replace('/driver-arriving?rideId=' + ride.id);
     } catch (error: any) {
       setAlertState({ visible: true, title: 'Error', message: error.message || 'Failed to book ride', variant: 'danger' });
+    } finally {
+      isSubmitting.current = false;
     }
   };
 
@@ -159,9 +165,9 @@ export default function PaymentConfirmScreen() {
               </View>
             ))}
 
-            {(selectedEstimate as any).surge_multiplier > 1.0 && (
+            {(selectedEstimate.surge_multiplier ?? 1) > 1.0 && (
               <View style={styles.fareRow}>
-                <Text style={[styles.fareLabel, { color: '#EF4444' }]}>Surge ({(selectedEstimate as any).surge_multiplier}x)</Text>
+                <Text style={[styles.fareLabel, { color: '#EF4444' }]}>Surge ({selectedEstimate.surge_multiplier}x)</Text>
                 <Text style={[styles.fareValue, { color: '#EF4444' }]}>Applied</Text>
               </View>
             )}
@@ -255,6 +261,21 @@ export default function PaymentConfirmScreen() {
             ) : null}
           </View>
         )}
+
+        {/* Fare Split Option */}
+        <TouchableOpacity
+          style={styles.splitButton}
+          onPress={() => router.push('/fare-split' as any)}
+        >
+          <View style={styles.splitIconContainer}>
+            <Ionicons name="people" size={20} color={SpinrConfig.theme.colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.splitText}>Split Fare</Text>
+            <Text style={styles.splitSubtext}>Share the cost with friends</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#999" />
+        </TouchableOpacity>
       </ScrollView>
       </KeyboardAvoidingView>
 
@@ -657,5 +678,31 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: 'PlusJakartaSans_700Bold',
     color: SpinrConfig.theme.colors.primary,
+  },
+  splitButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    marginBottom: 20,
+    gap: 12,
+  },
+  splitIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: SpinrConfig.theme.colors.primary + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splitText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1A1A1A',
+  },
+  splitSubtext: {
+    fontSize: 13,
+    color: '#999',
+    marginTop: 2,
   },
 });

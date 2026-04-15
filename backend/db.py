@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 from typing import Any, Dict, List, Optional
 
@@ -18,7 +19,9 @@ if not _goonline_logger.handlers:
     _h = logging.StreamHandler(sys.stdout)
     _h.setFormatter(logging.Formatter("[GO-ONLINE] %(message)s"))
     _goonline_logger.addHandler(_h)
-    _goonline_logger.setLevel(logging.INFO)
+    # Only emit diagnostic traces when DEBUG env var is set to avoid PII leak in production
+    _debug_enabled = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
+    _goonline_logger.setLevel(logging.DEBUG if _debug_enabled else logging.WARNING)
     _goonline_logger.propagate = False
 
 # Dedicated diagnostic logger for route handlers. Route modules import
@@ -34,7 +37,8 @@ if not diag_logger.handlers:
     _h2 = logging.StreamHandler(sys.stdout)
     _h2.setFormatter(logging.Formatter("%(message)s"))
     diag_logger.addHandler(_h2)
-    diag_logger.setLevel(logging.INFO)
+    # Only emit diagnostic traces when DEBUG env var is set to avoid PII leak in production
+    diag_logger.setLevel(logging.DEBUG if _debug_enabled else logging.WARNING)
     diag_logger.propagate = False
 
 # Provide a db variable for backward compatibility
@@ -285,6 +289,26 @@ class DB:
         self.cloud_messages = BaseCollection("cloud_messages")
         self.audit_logs = BaseCollection("audit_logs")
         self.push_tokens = BaseCollection("push_tokens")
+        self.admin_staff = BaseCollection("admin_staff")
+        self.support_messages = BaseCollection("support_messages")
+        # Favorite routes
+        self.favorite_routes = BaseCollection("favorite_routes")
+        # Loyalty program
+        self.loyalty_accounts = BaseCollection("loyalty_accounts")
+        self.loyalty_transactions = BaseCollection("loyalty_transactions")
+        # P1-07: In-app wallet
+        self.wallets = BaseCollection("wallets")
+        self.wallet_transactions = BaseCollection("wallet_transactions")
+        # P1-08: Fare splitting
+        self.fare_splits = BaseCollection("fare_splits")
+        self.fare_split_participants = BaseCollection("fare_split_participants")
+        # P1-09: Quest / bonus challenges
+        self.quests = BaseCollection("quests")
+        self.quest_progress = BaseCollection("quest_progress")
+        # Stripe webhook dedup (migration 22; audit P0-B2)
+        self.stripe_events = BaseCollection("stripe_events")
+        # Refresh tokens for rotation + revocation (migration 25; audit P0-S3)
+        self.refresh_tokens = BaseCollection("refresh_tokens")
 
     async def rpc(self, func_name: str, params: Dict[str, Any]):
         return await db_supabase.rpc(func_name, params)
@@ -300,6 +324,7 @@ class DB:
     ):
         """Paginated row fetch for admin and other callers."""
         return await db_supabase.get_rows(table, filters, order, desc, limit, offset)
+
 
 class BaseCollection(Collection):
     def __init__(self, name: str):

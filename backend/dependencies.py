@@ -1,11 +1,19 @@
 import secrets
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from firebase_admin import auth as firebase_auth
+from firebase_admin.auth import (
+    CertificateFetchError,
+    ExpiredIdTokenError,
+    InvalidIdTokenError,
+    RevokedIdTokenError,
+    UserDisabledError,
+)
 from loguru import logger
 
 try:
@@ -42,8 +50,30 @@ def generate_otp() -> str:
     return "".join(secrets.choice(string.digits) for _ in range(OTP_LENGTH))
 
 
-def create_jwt_token(user_id: str, phone: str, session_id: str = None) -> str:
-    payload = {"user_id": user_id, "phone": phone, "exp": datetime.utcnow() + timedelta(days=30)}
+def create_jwt_token(
+    user_id: str,
+    phone: str,
+    session_id: Optional[str] = None,
+    *,
+    token_version: int = 0,
+) -> str:
+    """Mint a rider/driver access token.
+
+    ``token_version`` is written into the payload so the middleware can
+    compare it against ``users.token_version`` and reject tokens issued
+    before a force-logout-all. TTL comes from
+    ``settings.ACCESS_TOKEN_TTL_DAYS``; admin tokens are minted in
+    ``routes/admin/auth.py`` directly because they carry a different
+    claim set (role, modules, email).
+    """
+    now = datetime.now(timezone.utc)
+    payload: dict = {
+        "user_id": user_id,
+        "phone": phone,
+        "iat": now,
+        "exp": now + timedelta(days=settings.ACCESS_TOKEN_TTL_DAYS),
+        "token_version": int(token_version or 0),
+    }
     if session_id:
         payload["session_id"] = session_id
 
@@ -60,6 +90,19 @@ def verify_jwt_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token") from None
 
 
+def _token_version_mismatch(payload: dict, user_row: dict) -> bool:
+    """Return True if the access-token's token_version is stale.
+
+    Tokens minted before this migration land do not carry a
+    token_version claim; we treat a missing claim as 0. ``user_row`` is
+    whatever came back from the users / admin_staff table — the check
+    is symmetric: default 0 on both sides.
+    """
+    claim = int(payload.get("token_version") or 0)
+    stored = int(user_row.get("token_version") or 0)
+    return claim < stored
+
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """Resolve the current user using Firebase ID token (preferred) or fallback to legacy JWT."""
     if not credentials:
@@ -70,7 +113,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     try:
         try:
             payload = firebase_auth.verify_id_token(token)
-        except Exception:
+        except ExpiredIdTokenError:
+            raise HTTPException(status_code=401, detail="Firebase token has expired") from None
+        except (InvalidIdTokenError, RevokedIdTokenError, UserDisabledError, CertificateFetchError) as e:
+            logger.debug(f"Firebase token verification failed, falling through to JWT: {type(e).__name__}")
+            payload = None
+        except ValueError:
+            # Token doesn't look like a Firebase token at all — fall through to JWT
             payload = None
 
         if payload:
@@ -87,7 +136,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                     new_user = {
                         "id": uid,
                         "phone": phone or "",
-                        "role": "rider",
+                        "role": "rider",  # Always default — never trust token claims
                         "created_at": datetime.utcnow(),
                         "profile_complete": False,
                     }
@@ -99,8 +148,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 user["is_driver"] = True if driver else False
             return user
     except HTTPException:
-        # fall through to try legacy JWT
-        pass
+        raise
 
     # Fallback: existing JWT behavior
     try:
@@ -122,17 +170,27 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         db_session = user.get("current_session_id")
         if db_session and token_session != db_session:
             raise HTTPException(status_code=401, detail="Session expired. Logged in from another device.")
-        # If the JWT carries a role claim (e.g. admin), honour it over the DB value
-        jwt_role = payload.get("role")
-        if jwt_role:
-            user["role"] = jwt_role
+        # Revocation gate — if the user's token_version has been bumped
+        # (admin force-logout-all, password reset, suspected compromise)
+        # every access token issued before the bump must be rejected.
+        # Tokens pre-dating migration 25 carry no claim → treated as 0,
+        # which matches the default DB value, so the upgrade is
+        # backwards-compatible until someone calls /auth/logout-all.
+        if _token_version_mismatch(payload, user):
+            raise HTTPException(
+                status_code=401,
+                detail="Session revoked — please log in again.",
+            )
+        # Role is always determined by the DB — never trust JWT role claims.
+        # A forged JWT with "role": "super_admin" must not grant escalated access.
 
     if not user:
-        # User not in DB yet — create them (preserve role from JWT if present)
+        # User not in DB yet — create with default rider role.
+        # Never trust the JWT role claim for auto-created users.
         user = {
             "id": payload["user_id"],
             "phone": payload.get("phone", ""),
-            "role": payload.get("role", "rider"),
+            "role": "rider",
             "created_at": datetime.utcnow().isoformat(),
             "profile_complete": False,
         }
