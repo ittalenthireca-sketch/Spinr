@@ -1,7 +1,7 @@
 """
 features.py – Extended feature endpoints for Spinr.
 Includes: Support Tickets, FAQs, Surge Pricing, Scheduled Rides,
-           Multi-stop Rides, Safety Toolkit, Push Notifications.
+Multi-stop Rides, Safety Toolkit, Push Notifications.
 """
 
 import asyncio
@@ -70,7 +70,7 @@ async def calculate_airport_fee(
     For multi-stop rides, each stop is also checked.
 
     Returns {'airport_fee': float, 'airport_zone_name': str | None,
-             'is_pickup': bool, 'is_dropoff': bool, 'is_stop': bool}
+    'is_pickup': bool, 'is_dropoff': bool, 'is_stop': bool}
     """
     areas = await db_supabase.get_rows("service_areas", {"is_airport": True}, limit=50)
     result: Dict[str, Any] = {
@@ -301,14 +301,14 @@ async def admin_reply_ticket(ticket_id: str, req: ReplyToTicketRequest):
     replies = ticket.get("replies", [])
     replies.append(reply)
 
- await db_supabase.update_one("support_tickets", {"id": ticket_id}, { "replies": replies, "status": "in_progress", "updated_at": datetime.utcnow(), })
+    await db_supabase.update_one("support_tickets", {"id": ticket_id}, { "replies": replies, "status": "in_progress", "updated_at": datetime.utcnow(), })
     return {"status": "replied", "reply": reply}
 
 
 @admin_support_router.post("/tickets/{ticket_id}/close")
 async def admin_close_ticket(ticket_id: str):
     """Close a support ticket."""
- result = await db_supabase.update_one("support_tickets", {"id": ticket_id}, {"status": "closed", "updated_at": datetime.utcnow()})
+    result = await db_supabase.update_one("support_tickets", {"id": ticket_id}, {"status": "closed", "updated_at": datetime.utcnow()})
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return {"status": "closed"}
@@ -867,7 +867,7 @@ async def schedule_ride(req: ScheduleRideRequest):
 async def get_scheduled_rides(user_id: str = Query(...)):
     """Get all scheduled rides for a user."""
     rides = (
- await db_supabase.get_rides_for_user(user_id, limit=50)
+    await db_supabase.get_rides_for_user(user_id, limit=50)
     )
     return rides
 
@@ -956,7 +956,7 @@ async def share_trip(ride_id: str, req: ShareTripRequest):
         }
     )
 
- await db_supabase.update_ride(ride_id, { "shared_trip_token": token, "shared_trip_contacts": contacts, })
+    await db_supabase.update_ride(ride_id, { "shared_trip_token": token, "shared_trip_contacts": contacts, })
 
     # The share URL format – frontend or web page would render this
     share_url = f"/trip/live/{token}"
@@ -1046,7 +1046,7 @@ async def check_scheduled_rides():
             # Find rides scheduled within the next 5 minutes
             window = now + timedelta(minutes=5)
 
- scheduled = await db_supabase.get_rows("rides",  { "status": "scheduled", "is_scheduled": True, } , limit=50)
+            scheduled = await db_supabase.get_rows("rides",  { "status": "scheduled", "is_scheduled": True, } , limit=50)
 
             for ride in scheduled:
                 sched_time = ride.get("scheduled_time")
@@ -1055,7 +1055,7 @@ async def check_scheduled_rides():
 
                 if sched_time and sched_time <= window:
                     # Transition to "searching" so the normal matching logic picks it up
- await db_supabase.update_ride(ride["id"], { "status": "searching", "ride_requested_at": datetime.utcnow(), "updated_at": datetime.utcnow(), })
+                    await db_supabase.update_ride(ride["id"], { "status": "searching", "ride_requested_at": datetime.utcnow(), "updated_at": datetime.utcnow(), })
                     logger.info(f"Dispatched scheduled ride {ride['id']}")
 
                     # Send push notification to rider

@@ -156,5 +156,5 @@ async def admin_delete_cloud_message(message_id: str):
     if existing.get("status") == "sent":
         raise HTTPException(status_code=400, detail="Cannot delete a sent message")
 
- await db_supabase.update_one("cloud_messages", {"id": message_id}, {"status": "cancelled"})
+    await db_supabase.update_one("cloud_messages", {"id": message_id}, {"status": "cancelled"})
     return {"message": "Message cancelled"}

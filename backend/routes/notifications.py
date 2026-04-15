@@ -49,10 +49,10 @@ async def register_push_token(request: Request, current_user: dict = Depends(get
         raise HTTPException(status_code=400, detail="Token is required")
 
     # Upsert: one token per user per platform
- existing = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("push_tokens", { "user_id": current_user["id"], "platform": platform, }, limit=1))
+    existing = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("push_tokens", { "user_id": current_user["id"], "platform": platform, }, limit=1))
 
     if existing:
- await db_supabase.update_one("push_tokens", {"id": existing["id"]}, {"token": token, "updated_at": datetime.utcnow().isoformat()})
+        await db_supabase.update_one("push_tokens", {"id": existing["id"]}, {"token": token, "updated_at": datetime.utcnow().isoformat()})
     else:
         await db_supabase.insert_one("push_tokens", 
             {
@@ -102,14 +102,14 @@ async def get_notifications(
 @api_router.put("/{notification_id}/read")
 async def mark_as_read(notification_id: str, current_user: dict = Depends(get_current_user)):
     """Mark a single notification as read."""
- await db_supabase.update_one("notifications", {"id": notification_id, "user_id": current_user["id"]}, {"is_read": True, "read_at": datetime.utcnow().isoformat()})
+    await db_supabase.update_one("notifications", {"id": notification_id, "user_id": current_user["id"]}, {"is_read": True, "read_at": datetime.utcnow().isoformat()})
     return {"success": True}
 
 
 @api_router.put("/read-all")
 async def mark_all_read(current_user: dict = Depends(get_current_user)):
     """Mark all notifications as read for the current user."""
- await db_supabase.update_one("notifications", {"user_id": current_user["id"], "is_read": False}, {"is_read": True, "read_at": datetime.utcnow().isoformat()})
+    await db_supabase.update_one("notifications", {"user_id": current_user["id"], "is_read": False}, {"is_read": True, "read_at": datetime.utcnow().isoformat()})
     return {"success": True}
 
 

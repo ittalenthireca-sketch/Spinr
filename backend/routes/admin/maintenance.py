@@ -55,7 +55,7 @@ async def admin_cleanup_location_history(days: int = 30):
         )
         deleted_idle = len(idle_rows or [])
         if deleted_idle > 0:
- await db_supabase.delete_many("driver_location_history", { "timestamp": {"$lt": cutoff_idle}, "tracking_phase": "online_idle", })
+            await db_supabase.delete_many("driver_location_history", {"timestamp": {"$lt": cutoff_idle}, "tracking_phase": "online_idle"})
     except Exception as e:
         logger.warning(f"Cleanup idle GPS failed: {e}")
 

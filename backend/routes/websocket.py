@@ -136,7 +136,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
                 # Verify driver ownership
                 is_valid_driver = False
                 if client_type == "driver" and driver_id:
-                    owned_driver = await db_supabase.get_driver_by_id(driver_id, "user_id": user["id"])
+                    owned_driver = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("drivers", {"id": driver_id, "user_id": user["id"]}, limit=1))
                     if owned_driver:
                         is_valid_driver = True
 
@@ -145,7 +145,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
                     await db_supabase.update_driver_location(driver_id, lat, lng)
 
                     # ── Persist GPS breadcrumb ──────────────────────
- active_ride = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("rides", { "driver_id": driver_id, "status": {"$in": ["driver_assigned", "driver_accepted", "driver_arrived", "in_progress"]}, }, limit=1))
+                    active_ride = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("rides", { "driver_id": driver_id, "status": {"$in": ["driver_assigned", "driver_accepted", "driver_arrived", "in_progress"]}, }, limit=1))
                     ride_id = active_ride["id"] if active_ride else None
 
                     # Determine tracking phase
@@ -175,7 +175,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
                     await db_supabase.insert_one("driver_location_history", breadcrumb)
 
                     # Forward to rider in real-time
- rides = await db_supabase.get_rows("rides",  { "driver_id": driver_id, "status": {"$in": ["driver_assigned", "driver_arrived", "in_progress"]}, } , limit=10)
+                    rides = await db_supabase.get_rows("rides",  { "driver_id": driver_id, "status": {"$in": ["driver_assigned", "driver_arrived", "in_progress"]}, } , limit=10)
                     for ride in rides:
                         await manager.send_personal_message(
                             {
@@ -198,7 +198,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
                     if dp:
                         driver_id = dp["id"]
                 if driver_id and points and client_type == "driver":
-                    owned = await db_supabase.get_driver_by_id(driver_id, "user_id": user["id"])
+                    owned = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("drivers", {"id": driver_id, "user_id": user["id"]}, limit=1))
                     if owned:
                         docs = []
                         for pt in points[:500]:  # cap at 500 points per batch

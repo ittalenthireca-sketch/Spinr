@@ -136,7 +136,7 @@ async def upload_profile_image(file: UploadFile = File(...), current_user: dict 
     # Store as data URI
     data_uri = f"data:{file.content_type};base64,{base64_image}"
 
- await db_supabase.update_one("users", {"id": current_user["id"]}, { "profile_image": data_uri, "profile_image_status": "pending_review", })
+    await db_supabase.update_one("users", {"id": current_user["id"]}, { "profile_image": data_uri, "profile_image_status": "pending_review", })
     updated_user = await db_supabase.get_user_by_id(current_user["id"])
 
     if not updated_user:
@@ -157,7 +157,7 @@ async def link_corporate_account(request: LinkCorporateRequest, current_user: di
         if not account:
             raise HTTPException(status_code=404, detail="Corporate account not found")
 
- await db_supabase.update_one("users", {"id": current_user["id"]}, {"corporate_account_id": request.corporate_account_id})
+    await db_supabase.update_one("users", {"id": current_user["id"]}, {"corporate_account_id": request.corporate_account_id})
 
     updated_user = await db_supabase.get_user_by_id(current_user["id"])
     if not updated_user:

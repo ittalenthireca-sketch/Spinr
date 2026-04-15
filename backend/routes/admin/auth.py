@@ -135,7 +135,7 @@ async def admin_login(request: LoginRequest):
         if staff.get("password_hash") == pw_hash:
             if not staff.get("is_active", True):
                 raise HTTPException(status_code=403, detail="Account is deactivated")
- await db_supabase.update_one("admin_staff", {"id": staff["id"]}, {"last_login": datetime.utcnow().isoformat()})
+            await db_supabase.update_one("admin_staff", {"id": staff["id"]}, {"last_login": datetime.utcnow().isoformat()})
             modules = staff.get("modules", ["dashboard"])
             token = jwt.encode(
                 {

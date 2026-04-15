@@ -399,7 +399,7 @@ async def admin_verify_driver(driver_id: str, req: DriverVerifyRequest):
         # Clear needs_review when admin verifies (re-approves)
         if req.verified:
             update_fields["needs_review"] = False
- await db_supabase.update_one("drivers", {"id": driver_id}, update_fields)
+        await db_supabase.update_one("drivers", {"id": driver_id}, update_fields)
     except HTTPException:
         raise
     except Exception as e:
@@ -636,7 +636,7 @@ async def admin_get_driver_daily_stats(
 @router.put("/drivers/{driver_id}/area")
 async def admin_assign_driver_area(driver_id: str, service_area_id: str):
     """Assign a driver to a specific service area."""
- await db_supabase.update_one("drivers", {"id": driver_id}, { "service_area_id": service_area_id, "updated_at": datetime.utcnow().isoformat(), })
+    await db_supabase.update_one("drivers", {"id": driver_id}, { "service_area_id": service_area_id, "updated_at": datetime.utcnow().isoformat(), })
     return {"message": f"Driver assigned to area {service_area_id}"}
 
 

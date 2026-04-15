@@ -93,7 +93,7 @@ async def validate_promo(
     # 3. Per-user usage limit (0 = unlimited)
     max_per_user = promo.get("max_uses_per_user", 1)
     if max_per_user > 0:
- user_uses = await db_supabase.count_documents("promo_applications", { "promo_id": promo["id"], "user_id": current_user["id"], })
+        user_uses = await db_supabase.count_documents("promo_applications", { "promo_id": promo["id"], "user_id": current_user["id"], })
         if user_uses >= max_per_user:
             raise HTTPException(
                 status_code=400, detail="You have already used this promo code the maximum number of times"
@@ -132,7 +132,7 @@ async def validate_promo(
     inactive_days = promo.get("inactive_days", 0)
     if inactive_days > 0:
         cutoff = (now - timedelta(days=inactive_days)).isoformat()
- recent_rides = await db_supabase.count_documents("rides", { "rider_id": current_user["id"], "status": "completed", "ride_completed_at": {"$gte": cutoff}, })
+        recent_rides = await db_supabase.count_documents("rides", { "rider_id": current_user["id"], "status": "completed", "ride_completed_at": {"$gte": cutoff}, })
         if recent_rides > 0:
             raise HTTPException(
                 status_code=400, detail="This promo is for returning riders who haven't ridden recently"
@@ -202,7 +202,7 @@ async def apply_promo(
     # Increment usage count
     promo = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("promotions", {"id": validation["promo_id"]}, limit=1))
     if promo:
- await db_supabase.update_one("promotions", {"id": validation["promo_id"]}, {"uses": promo.get("uses", 0) + 1})
+        await db_supabase.update_one("promotions", {"id": validation["promo_id"]}, {"uses": promo.get("uses", 0) + 1})
 
     return {
         "success": True,
@@ -224,7 +224,7 @@ async def get_available_promos(
     user = await db_supabase.get_user_by_id(current_user["id"])
     total_rides = await db_supabase.count_documents("rides", {"rider_id": current_user["id"], "status": "completed"})
     recent_cutoff_30 = (now - timedelta(days=30)).isoformat()
- await db_supabase.count_documents("rides", { "rider_id": current_user["id"], "status": "completed", "ride_completed_at": {"$gte": recent_cutoff_30}, })
+    await db_supabase.count_documents("rides", { "rider_id": current_user["id"], "status": "completed", "ride_completed_at": {"$gte": recent_cutoff_30}, })
 
     available = []
     for p in promos:
@@ -246,7 +246,7 @@ async def get_available_promos(
             # Per-user usage (0 = unlimited)
             max_per_user = p.get("max_uses_per_user", 1)
             if max_per_user > 0:
- user_uses = await db_supabase.count_documents("promo_applications", {"promo_id": p["id"], "user_id": current_user["id"]})
+                user_uses = await db_supabase.count_documents("promo_applications", {"promo_id": p["id"], "user_id": current_user["id"]})
                 if user_uses >= max_per_user:
                     continue  # noqa: E701
 
@@ -274,7 +274,7 @@ async def get_available_promos(
             inactive_days = p.get("inactive_days", 0)
             if inactive_days > 0:
                 cutoff = (now - timedelta(days=inactive_days)).isoformat()
- recent = await db_supabase.count_documents("rides", {"rider_id": current_user["id"], "status": "completed", "ride_completed_at": {"$gte": cutoff}})
+                recent = await db_supabase.count_documents("rides", {"rider_id": current_user["id"], "status": "completed", "ride_completed_at": {"$gte": cutoff}})
                 if recent > 0:
                     continue  # noqa: E701
 

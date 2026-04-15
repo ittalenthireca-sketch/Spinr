@@ -101,7 +101,7 @@ async def confirm_payment(request: Dict[str, Any], current_user: dict = Depends(
     if payment_intent_id and payment_intent_id.startswith("pi_mock_"):
         # Mock payment
         if ride_id:
- await db_supabase.update_ride(ride_id, {"payment_status": "paid", "payment_intent_id": payment_intent_id})
+            await db_supabase.update_ride(ride_id, {"payment_status": "paid", "payment_intent_id": payment_intent_id})
         return {"status": "succeeded", "mock": True}
 
     settings = await get_app_settings()
@@ -115,7 +115,7 @@ async def confirm_payment(request: Dict[str, Any], current_user: dict = Depends(
             intent = stripe.PaymentIntent.retrieve(payment_intent_id)
 
             if ride_id:
- await db_supabase.update_ride(ride_id, {"payment_status": intent.status, "payment_intent_id": payment_intent_id})
+                await db_supabase.update_ride(ride_id, {"payment_status": intent.status, "payment_intent_id": payment_intent_id})
 
             return {"status": intent.status, "mock": False}
         except Exception as e:

@@ -63,5 +63,5 @@ async def admin_update_user_status(user_id: str, status_data: Dict[str, Any]):
     if new_status not in valid_status:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_status}")
 
- await db_supabase.update_one("users", {"id": user_id}, {"status": new_status, "updated_at": datetime.utcnow().isoformat()})
+    await db_supabase.update_one("users", {"id": user_id}, {"status": new_status, "updated_at": datetime.utcnow().isoformat()})
     return {"message": f"User status updated to {new_status}"}

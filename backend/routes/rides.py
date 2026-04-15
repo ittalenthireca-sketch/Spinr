@@ -111,7 +111,7 @@ async def match_driver_to_ride(ride_id: str):
     #
     # We also require user_id IS NOT NULL to skip legacy "demo" driver rows
     # that lack a real user and can never be notified.
- all_drivers = await db_supabase.get_rows("drivers",  { "is_online": True, "is_available": True, "vehicle_type_id": ride["vehicle_type_id"], } , limit=500)
+    all_drivers = await db_supabase.get_rows("drivers",  { "is_online": True, "is_available": True, "vehicle_type_id": ride["vehicle_type_id"], } , limit=500)
 
     logger.info(
         f"[DISPATCH] candidate pool (pre-filter): {len(all_drivers)} drivers "
@@ -166,13 +166,13 @@ async def match_driver_to_ride(ride_id: str):
 
     if selected_driver:
         # Attempt to atomically claim the driver (only if still available)
- claim_result = await db_supabase.claim_driver_atomic(selected_driver["id"])
+        claim_result = await db_supabase.claim_driver_atomic(selected_driver["id"])
 
         if claim_result.modified_count == 0:
             # Driver was taken by another process; try to find next candidate
             claimed = False
             for d, _ in drivers_with_distance:
- res = await db_supabase.claim_driver_atomic(d["id"])
+                res = await db_supabase.claim_driver_atomic(d["id"])
                 if res.modified_count > 0:
                     selected_driver = d
                     claimed = True
@@ -187,7 +187,7 @@ async def match_driver_to_ride(ride_id: str):
         # Accept. Setting it at dispatch time was a "demo auto-accept" hack
         # that made the rider-app show the driver card before the driver
         # had actually agreed to the ride.
- await db_supabase.update_ride(ride_id, { "driver_id": selected_driver["id"], "status": "driver_assigned", "driver_notified_at": datetime.utcnow(), "updated_at": datetime.utcnow(), })
+        await db_supabase.update_ride(ride_id, { "driver_id": selected_driver["id"], "status": "driver_assigned", "driver_notified_at": datetime.utcnow(), "updated_at": datetime.utcnow(), })
 
         logger.info(
             f"[DISPATCH] ride {ride_id} assigned to driver_id={selected_driver['id']} "
@@ -291,7 +291,7 @@ async def estimate_ride(request: RideEstimateRequest, current_user: dict = Depen
     fares = await get_fares_for_location(request.pickup_lat, request.pickup_lng)
 
     # Fetch all nearby online+available drivers once
- all_drivers = await db_supabase.get_rows("drivers",  { "is_online": True, "is_available": True, } , limit=200)
+    all_drivers = await db_supabase.get_rows("drivers",  { "is_online": True, "is_available": True, } , limit=200)
 
     # Filter to drivers within 10km radius and group by vehicle_type_id.
     # Exclude drivers without a user_id — those are orphan/demo rows that
@@ -514,7 +514,7 @@ async def create_ride(request: CreateRideRequest, current_user: dict = Depends(g
         try:
             current_ride = await db_supabase.get_ride(r_id)
             if current_ride and current_ride.get("status") == "searching":
- await db_supabase.update_ride(r_id, { "status": "cancelled", "cancelled_at": datetime.utcnow(), "cancellation_reason": "No nearby drivers found. Please try again.", "updated_at": datetime.utcnow(), })
+                await db_supabase.update_ride(r_id, { "status": "cancelled", "cancelled_at": datetime.utcnow(), "cancellation_reason": "No nearby drivers found. Please try again.", "updated_at": datetime.utcnow(), })
                 # Notify rider
                 await manager.send_personal_message(
                     {
@@ -545,11 +545,11 @@ async def get_active_ride(current_user: dict = Depends(get_current_user)):
     active_statuses = ["searching", "driver_assigned", "driver_accepted", "driver_arrived", "in_progress"]
 
     # Check for unpaid completed ride first (must pay before new ride)
- unpaid_ride = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("rides", { "rider_id": current_user["id"], "status": "completed", "payment_status": {"$ne": "paid"}, }, limit=1))
+    unpaid_ride = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("rides", { "rider_id": current_user["id"], "status": "completed", "payment_status": {"$ne": "paid"}, }, limit=1))
     if unpaid_ride:
         ride = unpaid_ride
     else:
- ride = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("rides", { "rider_id": current_user["id"], "status": {"$in": active_statuses}, }, limit=1))
+        ride = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("rides", { "rider_id": current_user["id"], "status": {"$in": active_statuses}, }, limit=1))
 
     if not ride:
         return {"active": False, "ride": None}
@@ -586,7 +586,7 @@ async def get_active_ride(current_user: dict = Depends(get_current_user)):
 async def get_ride_history(current_user: dict = Depends(get_current_user)):
     """Get rider's past rides for the activity tab. Only completed or cancelled rides.
     Any stale rides (searching/assigned but old) are auto-cancelled."""
- all_rides = await db_supabase.get_rows("rides",  { "rider_id": current_user["id"], } , limit=200)
+    all_rides = await db_supabase.get_rows("rides",  { "rider_id": current_user["id"], } , limit=200)
 
     # Only show rides where a driver was actually assigned and ride started or completed
     # Exclude: searching, driver_assigned (never picked up), auto-expired
@@ -701,7 +701,7 @@ async def add_tip(ride_id: str, request: Request, current_user: dict = Depends(g
     new_tip = ride.get("tip_amount", 0) + tip_amount
     new_driver_earnings = ride.get("driver_earnings", 0) + tip_amount
 
- await db_supabase.update_ride(ride_id, {"tip_amount": new_tip, "driver_earnings": new_driver_earnings})
+    await db_supabase.update_ride(ride_id, {"tip_amount": new_tip, "driver_earnings": new_driver_earnings})
 
     return {"success": True, "tip_amount": new_tip}
 
@@ -730,7 +730,7 @@ async def process_payment(ride_id: str, request: Request, current_user: dict = D
     total_charge = (ride.get("total_fare", 0) or 0) + tip_amount
 
     # TODO: Stripe charge — for now mark as paid
- await db_supabase.update_ride(ride_id, { "payment_status": "paid", "tip_amount": tip_amount, "updated_at": datetime.utcnow().isoformat(), })
+    await db_supabase.update_ride(ride_id, { "payment_status": "paid", "tip_amount": tip_amount, "updated_at": datetime.utcnow().isoformat(), })
 
     # Send receipt email (SendGrid when configured, logs otherwise)
     rider = await db_supabase.get_user_by_id(current_user["id"])
@@ -834,7 +834,7 @@ async def rate_driver(ride_id: str, rating_data: RideRatingRequest, current_user
         raise HTTPException(status_code=404, detail="Ride not found or unauthorized")
 
     # Save rating using existing columns (rider_rating = rating rider gave the driver)
- await db_supabase.update_ride(ride_id, { "rider_rating": rating_data.rating, "rider_comment": rating_data.comment or "", "updated_at": datetime.utcnow(), })
+    await db_supabase.update_ride(ride_id, { "rider_rating": rating_data.rating, "rider_comment": rating_data.comment or "", "updated_at": datetime.utcnow(), })
 
     driver_id = ride.get("driver_id")
     if not driver_id:
@@ -843,7 +843,7 @@ async def rate_driver(ride_id: str, rating_data: RideRatingRequest, current_user
     if rating_data.tip_amount > 0:
         new_tip = ride.get("tip_amount", 0) + rating_data.tip_amount
         new_driver_earnings = ride.get("driver_earnings", 0) + rating_data.tip_amount
- await db_supabase.update_ride(ride_id, {"tip_amount": new_tip, "driver_earnings": new_driver_earnings})
+    await db_supabase.update_ride(ride_id, {"tip_amount": new_tip, "driver_earnings": new_driver_earnings})
 
     # Aggregate driver rating accurately
     driver = await db_supabase.get_driver_by_id(driver_id)
@@ -854,7 +854,7 @@ async def rate_driver(ride_id: str, rating_data: RideRatingRequest, current_user
 
         if rated_rides:
             average_rating = round(sum(rated_rides) / len(rated_rides), 2)
- await db_supabase.update_one("drivers", {"id": driver_id}, { "rating": average_rating, "average_rating": average_rating, "total_ratings": len(rated_rides), })
+    await db_supabase.update_one("drivers", {"id": driver_id}, { "rating": average_rating, "average_rating": average_rating, "total_ratings": len(rated_rides), })
 
     return {"success": True}
 
@@ -864,7 +864,7 @@ async def cancel_ride_rider(ride_id: str, current_user: dict = Depends(get_curre
     """Rider cancels the ride"""
     try:
         from .. import logging_utils
-from ..logging_utils import diag_logger  # type: ignore
+        from ..logging_utils import diag_logger  # type: ignore
     except ImportError:
         from logging_utils import diag_logger  # type: ignore
 
@@ -919,7 +919,7 @@ from ..logging_utils import diag_logger  # type: ignore
             if charged_driver > 0:
                 pass  # We would potentially log a payout or add to pending earnings
 
- await db_supabase.update_ride(ride_id, { "status": "cancelled", "cancelled_at": datetime.utcnow(), "cancellation_fee_admin": charged_admin, "cancellation_fee_driver": charged_driver, "updated_at": datetime.utcnow(), })
+    await db_supabase.update_ride(ride_id, { "status": "cancelled", "cancelled_at": datetime.utcnow(), "cancellation_fee_admin": charged_admin, "cancellation_fee_driver": charged_driver, "updated_at": datetime.utcnow(), })
 
     # Verify the cancel actually landed in the database. Same class of
     # silent-failure we hit with go-online and accept: the update_one wrapper
@@ -1073,7 +1073,7 @@ async def get_ride_messages(ride_id: str, current_user: dict = Depends(get_curre
 @api_router.get("/scheduled")
 async def get_scheduled_rides(current_user: dict = Depends(get_current_user)):
     """Get all upcoming scheduled rides for the current rider."""
- rides_cursor = db_supabase.get_rides_for_user(current_user, limit=100)
+    rides_cursor = db_supabase.get_rides_for_user(current_user, limit=100)
     rides = await rides_cursor.to_list(length=50) if hasattr(rides_cursor, "to_list") else list(rides_cursor)
     return rides
 
@@ -1081,13 +1081,13 @@ async def get_scheduled_rides(current_user: dict = Depends(get_current_user)):
 @api_router.delete("/scheduled/{ride_id}")
 async def cancel_scheduled_ride(ride_id: str, current_user: dict = Depends(get_current_user)):
     """Cancel a scheduled ride."""
-    ride = await db_supabase.get_ride(ride_id, "rider_id": current_user["id"], "is_scheduled": True)
+    ride = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("rides", {"id": ride_id, "rider_id": current_user["id"], "is_scheduled": True}, limit=1))
     if not ride:
         raise HTTPException(status_code=404, detail="Scheduled ride not found")
     if ride.get("status") in ["completed", "cancelled"]:
         raise HTTPException(status_code=400, detail="Ride is already completed or cancelled")
 
- await db_supabase.update_ride(ride_id, { "status": "cancelled", "cancelled_at": datetime.utcnow(), "cancellation_reason": "Cancelled by rider (scheduled)", "updated_at": datetime.utcnow(), })
+    await db_supabase.update_ride(ride_id, { "status": "cancelled", "cancelled_at": datetime.utcnow(), "cancellation_reason": "Cancelled by rider (scheduled)", "updated_at": datetime.utcnow(), })
     return {"success": True}
 
 
@@ -1100,7 +1100,7 @@ async def simulate_driver_arrival(ride_id: str, current_user: dict = Depends(get
     if ride.get("rider_id") != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
- await db_supabase.update_ride(ride_id, {"status": "driver_arrived", "driver_arrived_at": datetime.utcnow(), "updated_at": datetime.utcnow()})
+    await db_supabase.update_ride(ride_id, {"status": "driver_arrived", "driver_arrived_at": datetime.utcnow(), "updated_at": datetime.utcnow()})
     updated_ride = await db_supabase.get_ride(ride_id)
     return {"success": True, "pickup_otp": updated_ride.get("pickup_otp", "0000")}
 
@@ -1116,7 +1116,7 @@ async def rider_start_ride(ride_id: str, current_user: dict = Depends(get_curren
     if ride.get("status") not in ["driver_arrived"]:
         raise HTTPException(status_code=400, detail=f"Cannot start ride with status: {ride.get('status')}")
 
- await db_supabase.update_ride(ride_id, {"status": "in_progress", "ride_started_at": datetime.utcnow(), "updated_at": datetime.utcnow()})
+    await db_supabase.update_ride(ride_id, {"status": "in_progress", "ride_started_at": datetime.utcnow(), "updated_at": datetime.utcnow()})
     return {"success": True}
 
 

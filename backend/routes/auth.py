@@ -202,7 +202,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     `profile_complete` is derived from the row data — if first_name/last_name/
     email are populated we treat the profile as complete, regardless of the
     stored flag. This protects against:
-      - silent write failures where the column never flipped to true
+        - silent write failures where the column never flipped to true
       - expired driver documents (which are unrelated to profile completion)
       - legacy rows migrated without the flag set
 
@@ -219,7 +219,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     if has_profile_data and not current_user.get("profile_complete"):
         # Self-heal the column so the next login is fast and consistent.
         try:
- await db_supabase.update_one("users", {"id": current_user["id"]}, {"profile_complete": True})
+            await db_supabase.update_one("users", {"id": current_user["id"]}, {"profile_complete": True})
         except Exception as e:
             logger.warning(f"Could not self-heal profile_complete for {current_user.get('id')}: {e}")
         current_user["profile_complete"] = True

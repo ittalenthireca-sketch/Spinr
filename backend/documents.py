@@ -118,7 +118,7 @@ async def _supersede_and_flag_pending_review(
         }
         if side is not None:
             query["side"] = side
- await db_supabase.update_one("driver_documents", query, {"status": "superseded", "updated_at": datetime.utcnow()})
+        await db_supabase.update_one("driver_documents", query, {"status": "superseded", "updated_at": datetime.utcnow()})
     except Exception as e:
         logger.warning(f"Could not supersede prior docs for driver {driver_id}: {e}")
 
@@ -126,9 +126,9 @@ async def _supersede_and_flag_pending_review(
     try:
         driver = await db_supabase.get_driver_by_id(driver_id)
         if driver and driver.get("status") == "active":
- await db_supabase.update_one("drivers", {"id": driver_id}, { "status": "needs_review", "is_online": False, "is_available": False, "updated_at": datetime.utcnow(), })
+            await db_supabase.update_one("drivers", {"id": driver_id}, {"status": "needs_review", "is_online": False, "is_available": False, "updated_at": datetime.utcnow()})
         else:
- await db_supabase.update_one("drivers", {"id": driver_id}, {"updated_at": datetime.utcnow()})
+            await db_supabase.update_one("drivers", {"id": driver_id}, {"updated_at": datetime.utcnow()})
     except Exception as e:
         logger.warning(f"Could not flag driver {driver_id} for review: {e}")
 
@@ -164,7 +164,7 @@ async def get_document_requirements(
     Priority:
     1. If service_area_id is passed, use that area's required_documents.
     2. Else if the current user has a driver profile with a service_area_id,
-       use that area's required_documents.
+    use that area's required_documents.
     3. Fall back to the global document_requirements table.
     """
     area_id = service_area_id
@@ -482,7 +482,7 @@ async def admin_review_document(doc_id: str, req: ReviewDocumentRequest):
             # rejecting on a past date from original onboarding.
             new_val = effective_expiry.isoformat() if effective_expiry else None
             try:
- await db_supabase.update_one("drivers", {"id": existing.get("driver_id")}, {legacy_field: new_val, "updated_at": datetime.utcnow()})
+                await db_supabase.update_one("drivers", {"id": existing.get("driver_id")}, {legacy_field: new_val, "updated_at": datetime.utcnow()})
             except Exception as e:
                 logger.warning(
                     f"Could not update legacy expiry field {legacy_field} for driver {existing.get('driver_id')}: {e}"

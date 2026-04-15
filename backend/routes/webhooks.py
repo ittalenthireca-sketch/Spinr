@@ -58,7 +58,7 @@ async def stripe_webhook(request: Request):
         payment_intent_id = data_object.get("id")
 
         if ride_id:
- await db_supabase.update_ride(ride_id, { "payment_status": "paid", "payment_intent_id": payment_intent_id, "paid_at": datetime.utcnow(), })
+            await db_supabase.update_ride(ride_id, { "payment_status": "paid", "payment_intent_id": payment_intent_id, "paid_at": datetime.utcnow(), })
             logger.info(f"Payment confirmed via webhook for ride {ride_id}")
 
         if user_id:
@@ -76,7 +76,7 @@ async def stripe_webhook(request: Request):
         failure_message = data_object.get("last_payment_error", {}).get("message", "Payment failed")
 
         if ride_id:
- await db_supabase.update_ride(ride_id, { "payment_status": "failed", "payment_intent_id": payment_intent_id, "payment_failure_reason": failure_message, })
+            await db_supabase.update_ride(ride_id, { "payment_status": "failed", "payment_intent_id": payment_intent_id, "payment_failure_reason": failure_message, })
             logger.warning(f"Payment failed for ride {ride_id}: {failure_message}")
 
         if user_id:

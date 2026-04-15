@@ -176,7 +176,7 @@ async def admin_reply_to_ticket(ticket_id: str, reply: Dict[str, Any]):
 
     # Update ticket status if needed
     if reply.get("status"):
- await db_supabase.update_one("support_tickets", {"id": ticket_id}, { "status": reply.get("status"), "updated_at": datetime.utcnow().isoformat(), })
+        await db_supabase.update_one("support_tickets", {"id": ticket_id}, {"status": reply.get("status"), "updated_at": datetime.utcnow().isoformat()})
 
     return {"message": "Reply sent"}
 
@@ -184,7 +184,7 @@ async def admin_reply_to_ticket(ticket_id: str, reply: Dict[str, Any]):
 @router.post("/tickets/{ticket_id}/close")
 async def admin_close_ticket(ticket_id: str):
     """Close a support ticket."""
- await db_supabase.update_one("support_tickets", {"id": ticket_id}, {"status": "closed", "closed_at": datetime.utcnow().isoformat()})
+    await db_supabase.update_one("support_tickets", {"id": ticket_id}, {"status": "closed", "closed_at": datetime.utcnow().isoformat()})
     return {"message": "Ticket closed"}
 
 

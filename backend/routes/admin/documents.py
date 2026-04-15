@@ -154,7 +154,7 @@ async def admin_review_driver_document(document_id: str, review_data: Dict[str, 
         updates["rejection_reason"] = rejection_reason
 
     try:
- await db_supabase.update_one("driver_documents", {"id": document_id}, updates)
+        await db_supabase.update_one("driver_documents", {"id": document_id}, updates)
     except Exception as e:
         logger.error(f"Failed to update driver_document {document_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update document: {e}") from e
@@ -176,7 +176,7 @@ async def admin_review_driver_document(document_id: str, review_data: Dict[str, 
             # value (None) so the go-online check skips it instead of
             # rejecting on a past date from original onboarding.
             try:
- await db_supabase.update_one("drivers", {"id": existing.get("driver_id")}, { legacy_field: effective_expiry_iso, "updated_at": datetime.utcnow().isoformat(), })
+                await db_supabase.update_one("drivers", {"id": existing.get("driver_id")}, { legacy_field: effective_expiry_iso, "updated_at": datetime.utcnow().isoformat(), })
             except Exception as e:
                 logger.warning(
                     f"Could not update legacy expiry field {legacy_field} for driver {existing.get('driver_id')}: {e}"
@@ -196,7 +196,7 @@ async def admin_review_driver_document(document_id: str, review_data: Dict[str, 
                 try:
                     drv = await db_supabase.get_driver_by_id(driver_id)
                     if drv and drv.get("status") == "needs_review":
- await db_supabase.update_one("drivers", {"id": driver_id}, {"status": "active", "is_verified": True})
+                        await db_supabase.update_one("drivers", {"id": driver_id}, {"status": "active", "is_verified": True})
                 except Exception as _exc:
                     logger.debug(f"Could not reset driver {driver_id} status to active: {_exc}")
 
