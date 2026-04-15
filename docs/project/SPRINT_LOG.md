@@ -73,8 +73,8 @@ admin auth, test suite). This session's goal: ship everything remaining.
 | 1a | Fix driver chat.tsx (syntax bug + polling → driverStore WS) | 🔲 | |
 | 1b | Deprecate frontend/; configure rider-app web target | 🔲 | |
 | 1c | Port 8 missing screens to rider-app | 🔲 | wallet, manage-cards, promotions, saved-places, scheduled-rides, privacy-settings, emergency-contacts, fare-split |
-| 1d | Dark mode (ThemeContext + all screens) | 🔲 | |
-| 1e | Offline mode (AsyncStorage persistence) | 🔲 | |
+| 1d | Dark mode (ThemeContext + all screens) | ✅ | shared/theme/; all ~70 screens migrated |
+| 1e | Offline mode (AsyncStorage persistence) | ✅ | rideStore + driverStore write-through; hydrateActiveRide / hydrateDriverRideState on mount |
 | 1f | Legal text wire-up | 🔲 | |
 
 ### Decisions

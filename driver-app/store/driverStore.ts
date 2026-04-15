@@ -1,6 +1,20 @@
 import { create } from 'zustand';
 import api from '@shared/api/client';
 import SpinrConfig from '@shared/config/spinr.config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const DRIVER_RIDE_KEY = '@spinr:driver_active_ride';
+const DRIVER_TERMINAL_STATES = new Set<string>(['idle', 'trip_completed']);
+
+// Write activeRide + rideState to AsyncStorage so the driver can resume
+// after an app restart mid-trip. Clears the key when the ride is over.
+const _persistDriverState = (rideState: string, activeRide: any) => {
+  if (!activeRide || DRIVER_TERMINAL_STATES.has(rideState)) {
+    AsyncStorage.removeItem(DRIVER_RIDE_KEY).catch(() => {});
+  } else {
+    AsyncStorage.setItem(DRIVER_RIDE_KEY, JSON.stringify({ rideState, activeRide })).catch(() => {});
+  }
+};
 
 // These are fallbacks used ONLY until the driver-app pulls
 // `GET /drivers/config` from the backend on mount (see
@@ -292,6 +306,7 @@ interface DriverState {
     clearChatMessages: () => void;
 
     // State management
+    hydrateDriverRideState: () => Promise<void>;
     resetRideState: () => void;
     rateRider: (rideId: string, rating: number, comment?: string) => Promise<void>;
     submitTip: (rideId: string, amount: number) => Promise<boolean>;
@@ -371,13 +386,10 @@ export const useDriverStore = create<DriverState>((set, get) => ({
         set({ isLoading: true, error: null });
         try {
             await api.post(`/drivers/rides/${rideId}/accept`);
-            set({
-                rideState: 'navigating_to_pickup',
-                incomingRide: null,
-                countdownSeconds: 0,
-            });
+            set({ rideState: 'navigating_to_pickup', incomingRide: null, countdownSeconds: 0 });
             // Fetch the full active ride data
             await get().fetchActiveRide();
+            _persistDriverState('navigating_to_pickup', get().activeRide);
         } catch (err: any) {
             const status = err?.response?.status;
             const detail: string = err?.response?.data?.detail || '';
@@ -442,6 +454,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
             await api.post(`/drivers/rides/${rideId}/arrive`);
             set({ rideState: 'arrived_at_pickup' });
             await get().fetchActiveRide();
+            _persistDriverState('arrived_at_pickup', get().activeRide);
             return { success: true };
         } catch (err: any) {
             set({ error: err.response?.data?.detail || 'Failed to mark arrival' });
@@ -457,6 +470,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
             await api.post(`/drivers/rides/${rideId}/verify-otp`, { otp });
             set({ rideState: 'trip_in_progress' });
             await get().fetchActiveRide();
+            _persistDriverState('trip_in_progress', get().activeRide);
             return true;
         } catch (err: any) {
             set({ error: err.response?.data?.detail || 'Invalid OTP' });
@@ -472,6 +486,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
             await api.post(`/drivers/rides/${rideId}/start`);
             set({ rideState: 'trip_in_progress' });
             await get().fetchActiveRide();
+            _persistDriverState('trip_in_progress', get().activeRide);
         } catch (err: any) {
             set({ error: err.response?.data?.detail || 'Failed to start ride' });
         } finally {
@@ -483,11 +498,8 @@ export const useDriverStore = create<DriverState>((set, get) => ({
         set({ isLoading: true, error: null });
         try {
             const res = await api.post(`/drivers/rides/${rideId}/complete`);
-            set({
-                rideState: 'trip_completed',
-                completedRide: res.data,
-                activeRide: null,
-            });
+            set({ rideState: 'trip_completed', completedRide: res.data, activeRide: null });
+            AsyncStorage.removeItem(DRIVER_RIDE_KEY).catch(() => {});
         } catch (err: any) {
             set({ error: err.response?.data?.detail || 'Failed to complete ride' });
         } finally {
@@ -500,6 +512,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
         try {
             await api.post(`/drivers/rides/${rideId}/cancel?reason=${encodeURIComponent(reason || '')}`);
             set({ rideState: 'idle', activeRide: null, incomingRide: null });
+            AsyncStorage.removeItem(DRIVER_RIDE_KEY).catch(() => {});
         } catch (err: any) {
             set({ error: err.response?.data?.detail || 'Failed to cancel ride' });
         } finally {
@@ -519,8 +532,10 @@ export const useDriverStore = create<DriverState>((set, get) => ({
                 else if (ride.status === 'in_progress') rideState = 'trip_in_progress';
 
                 set({ activeRide: res.data, rideState });
+                _persistDriverState(rideState, res.data);
             } else {
                 set({ activeRide: null });
+                AsyncStorage.removeItem(DRIVER_RIDE_KEY).catch(() => {});
             }
         } catch {
             // Non-critical — caller state remains unchanged
@@ -602,6 +617,28 @@ export const useDriverStore = create<DriverState>((set, get) => ({
 
     clearChatMessages: () => set({ chatMessages: [] }),
 
+    // ── Offline hydration ────────────────────────────────────────────
+    // Called once on mount (before fetchActiveRide). Restores the last
+    // known driver ride state from AsyncStorage so the UI resumes
+    // instantly after an app restart mid-trip.
+    hydrateDriverRideState: async () => {
+        try {
+            const raw = await AsyncStorage.getItem(DRIVER_RIDE_KEY);
+            if (!raw) return;
+            const { rideState, activeRide } = JSON.parse(raw);
+            if (!activeRide || DRIVER_TERMINAL_STATES.has(rideState)) {
+                await AsyncStorage.removeItem(DRIVER_RIDE_KEY);
+                return;
+            }
+            // Only restore if no active ride is already in memory.
+            if (!get().activeRide) {
+                set({ activeRide, rideState });
+            }
+        } catch {
+            AsyncStorage.removeItem(DRIVER_RIDE_KEY).catch(() => {});
+        }
+    },
+
     resetRideState: () => {
         set({
             rideState: 'idle',
@@ -612,6 +649,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
             chatMessages: [],
             error: null,
         });
+        AsyncStorage.removeItem(DRIVER_RIDE_KEY).catch(() => {});
     },
 
     clearError: () => set({ error: null }),

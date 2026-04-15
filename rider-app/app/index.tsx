@@ -43,8 +43,10 @@ export default function Index() {
       } else if (user && !profileComplete) {
         router.replace('/profile-setup');
       } else {
-        // Check for active/pending ride before going to home
+        // Hydrate from AsyncStorage first (instant, no network needed),
+        // then fetch from API to confirm/update the live state.
         try {
+          await useRideStore.getState().hydrateActiveRide();
           const result = await useRideStore.getState().fetchActiveRide();
           if (result?.active && result.ride) {
             const status = result.ride.status;
