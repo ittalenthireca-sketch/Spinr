@@ -153,5 +153,49 @@ _(to be recorded as sprint progresses)_
 
 ---
 
+## SPR-04 — App Store Submission
+**Date:** 2026-04-15
+**Branch:** `claude/complete-product-streamline-Zj6lW`
+**Status:** ✅ Code-complete — blocking on OPS gates
+
+### Context
+All code and configuration required to ship production builds is committed.
+The remaining steps are operator actions (provisioning accounts, uploading
+credentials, running `eas build`, submitting to the stores). See
+`docs/deploy/CHECKLIST.md` Phases A–I and `docs/deploy/04-mobile-eas.md`
+for the full runbook.
+
+### Tasks
+| ID | Task | Status | Notes |
+|---|---|---|---|
+| 4a | EAS production build profile — rider-app | ✅ | `distribution:store`, `autoIncrement:true`, `submit.production` with env-var credentials |
+| 4b | EAS production build profile — driver-app | ✅ | Same as 4a; separate `ASC_DRIVER_APP_ID` var |
+| 4c | App Store Connect metadata | ✅ | `rider-app/store-assets/metadata.json` — name, description, keywords, review notes, screenshot manifest |
+| 4d | Google Play metadata | ✅ | `driver-app/store-assets/metadata.json` — same structure for both apps |
+| 4e | Final security scan | ✅ | `security-scan` CI job: full git-history Trufflehog on release tags/dispatch; Trivy blocks on CRITICAL/HIGH; working-tree filesystem scan added |
+| 4f | `docs/deploy/CHECKLIST.md` Phase A–I | ⏳ | Checklist exists and is complete; human sign-off gates final launch |
+
+### Decisions
+| ID | Decision |
+|---|---|
+| D-015 | EAS submit credentials sourced from GitHub Actions secrets (`$APPLE_ID`, `$ASC_APP_ID`, `$ASC_DRIVER_APP_ID`, `$APPLE_TEAM_ID`); never hardcoded in eas.json |
+| D-016 | `play-service-account.json` is gitignored; operator places it manually in each app dir before `eas submit` |
+| D-017 | Trufflehog scan is incremental (HEAD~1) on every push for speed; switches to full-history on release tags and `workflow_dispatch` |
+| D-018 | Trivy filesystem scan now blocks (exit-code 1) on CRITICAL or HIGH severity with `ignore-unfixed:true` |
+
+### Deliverables
+- [x] `rider-app/eas.json` — production profile with `distribution:store`, `autoIncrement`, `submit.production`
+- [x] `driver-app/eas.json` — same
+- [x] `rider-app/store-assets/metadata.json` — App Store Connect + Google Play copy
+- [x] `driver-app/store-assets/metadata.json` — same
+- [x] `.github/workflows/ci.yml` — `security-scan` job: full-history Trufflehog, filesystem scan, Trivy CRITICAL/HIGH blocking
+- [x] `scripts/setup-eas-secrets.sh` — extended to register `EXPO_PUBLIC_BACKEND_URL` and `SENTRY_AUTH_TOKEN`
+- [x] `docs/project/MASTER_PLAN.md` — SPR-00 through SPR-04 status updated
+- [ ] OPS: Apple Developer + Google Play accounts active (human gate)
+- [ ] OPS: Firebase `google-services.json` + `GoogleService-Info.plist` placed in app dirs
+- [ ] OPS: `eas build --profile production --platform all` run for rider-app + driver-app
+- [ ] OPS: `eas submit --profile production --platform all` run for both apps
+- [ ] OPS: Store review approved (24-72h for new apps)
+
 <!-- Add new sprints above this line, newest first -->
 
