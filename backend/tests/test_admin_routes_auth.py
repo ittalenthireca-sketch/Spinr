@@ -66,9 +66,19 @@ class TestAdminRoutesRequireAuth:
             # dependency) and then blew up on a real outbound request — the
             # public-route contract is satisfied. 403 would have been raised
             # by the dependency BEFORE any outbound call.
-            assert "ProxyError" in type(exc).__name__ or "proxy" in str(exc).lower(), (
-                f"Unexpected exception: {type(exc).__name__}: {exc}"
+            # Accept any network-level error: ProxyError (corp proxy) or
+            # ConnectError/Name-not-known (no-internet sandbox / CI).
+            # Any of these proves the handler was reached past the auth
+            # dependency — a 403 raised by the dependency would arrive
+            # before any outbound call is attempted.
+            is_network_error = (
+                "ProxyError" in type(exc).__name__
+                or "ConnectError" in type(exc).__name__
+                or "proxy" in str(exc).lower()
+                or "connect" in str(exc).lower()
+                or "name or service" in str(exc).lower()
             )
+            assert is_network_error, f"Unexpected exception: {type(exc).__name__}: {exc}"
 
     def test_admin_auth_session_is_public(self, client):
         """GET /api/admin/auth/session without token returns authenticated=false, NOT 403."""
