@@ -75,7 +75,7 @@ admin auth, test suite). This session's goal: ship everything remaining.
 | 1c | Port 8 missing screens to rider-app | 🔲 | wallet, manage-cards, promotions, saved-places, scheduled-rides, privacy-settings, emergency-contacts, fare-split |
 | 1d | Dark mode (ThemeContext + all screens) | ✅ | shared/theme/; all ~70 screens migrated |
 | 1e | Offline mode (AsyncStorage persistence) | ✅ | rideStore + driverStore write-through; hydrateActiveRide / hydrateDriverRideState on mount |
-| 1f | Legal text wire-up | 🔲 | |
+| 1f | Legal text wire-up | ✅ | settings_router was never mounted in server.py; fixed + dual-mount at root + /api/v1 |
 
 ### Decisions
 _(to be recorded as sprint progresses)_
