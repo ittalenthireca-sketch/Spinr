@@ -1,15 +1,18 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@shared/store/authStore';
 import { useRideStore } from '../store/rideStore';
-import SpinrConfig from '@shared/config/spinr.config';
+import { useTheme } from '@shared/theme/ThemeContext';
+import type { ThemeColors } from '@shared/theme/index';
 
 export default function Index() {
   const router = useRouter();
   const { isInitialized, token, user } = useAuthStore();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.5)).current;
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   useEffect(() => {
     Animated.parallel([
@@ -88,26 +91,28 @@ export default function Index() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: SpinrConfig.theme.colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoContainer: {
-    alignItems: 'center',
-  },
-  logo: {
-    fontSize: 64,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#FFFFFF',
-    letterSpacing: -2,
-  },
-  tagline: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_400Regular',
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginTop: 8,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    logoContainer: {
+      alignItems: 'center',
+    },
+    logo: {
+      fontSize: 64,
+      fontFamily: 'PlusJakartaSans_700Bold',
+      color: '#FFFFFF',
+      letterSpacing: -2,
+    },
+    tagline: {
+      fontSize: 16,
+      fontFamily: 'PlusJakartaSans_400Regular',
+      color: 'rgba(255, 255, 255, 0.8)',
+      marginTop: 8,
+    },
+  });
+}

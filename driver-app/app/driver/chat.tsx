@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
     View,
     Text,
@@ -17,21 +17,8 @@ import { useDriverStore } from '../../store/driverStore';
 import type { ChatMessage } from '../../store/driverStore';
 import api from '@shared/api/client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import SpinrConfig from '@shared/config/spinr.config';
-
-const THEME = SpinrConfig.theme.colors;
-const COLORS = {
-    primary: THEME.background,
-    accent: THEME.primary,
-    accentDim: THEME.primaryDark,
-    surface: THEME.surface,
-    surfaceLight: THEME.surfaceLight,
-    text: THEME.text,
-    textDim: THEME.textDim,
-    myBubble: THEME.primary,
-    theirBubble: THEME.surfaceLight,
-    border: THEME.border,
-};
+import { useTheme } from '@shared/theme/ThemeContext';
+import type { ThemeColors } from '@shared/theme/index';
 
 const QUICK_MESSAGES = [
     'On my way!',
@@ -45,6 +32,8 @@ const QUICK_MESSAGES = [
 export default function ChatScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const { colors } = useTheme();
+    const styles = useMemo(() => createStyles(colors), [colors]);
     const { activeRide, chatMessages, addChatMessage, setChatMessages } = useDriverStore();
     const [inputText, setInputText] = useState('');
     const [showQuickReplies, setShowQuickReplies] = useState(true);
@@ -135,7 +124,7 @@ export default function ChatScreen() {
             <View style={[styles.messageBubbleRow, isMe && styles.myMessageRow]}>
                 {!isMe && (
                     <View style={styles.avatarSmall}>
-                        <Ionicons name="person" size={14} color={COLORS.textDim} />
+                        <Ionicons name="person" size={14} color={colors.textDim} />
                     </View>
                 )}
                 <View style={[styles.bubble, isMe ? styles.myBubble : styles.theirBubble]}>
@@ -156,12 +145,12 @@ export default function ChatScreen() {
         >
             {/* Header */}
             <LinearGradient
-                colors={[COLORS.surface, COLORS.primary]}
+                colors={[colors.surface, colors.background]}
                 style={[styles.header, { paddingTop: insets.top + 12 }]}
             >
                 <View style={styles.headerRow}>
                     <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-                        <Ionicons name="arrow-back" size={22} color={COLORS.text} />
+                        <Ionicons name="arrow-back" size={22} color={colors.text} />
                     </TouchableOpacity>
                     <View style={styles.headerInfo}>
                         <Text style={styles.headerName}>{riderName}</Text>
@@ -184,7 +173,7 @@ export default function ChatScreen() {
                             }
                         }}
                     >
-                        <Ionicons name="call" size={20} color={COLORS.accent} />
+                        <Ionicons name="call" size={20} color={colors.primary} />
                     </TouchableOpacity>
                 </View>
             </LinearGradient>
@@ -199,7 +188,7 @@ export default function ChatScreen() {
                 showsVerticalScrollIndicator={false}
                 ListEmptyComponent={
                     <View style={styles.emptyChat}>
-                        <Ionicons name="chatbubbles-outline" size={48} color={COLORS.surfaceLight} />
+                        <Ionicons name="chatbubbles-outline" size={48} color={colors.surfaceLight} />
                         <Text style={styles.emptyChatText}>No messages yet</Text>
                         <Text style={styles.emptyChatSub}>Send a quick message to your rider</Text>
                     </View>
@@ -236,13 +225,13 @@ export default function ChatScreen() {
                     <Ionicons
                         name={showQuickReplies ? 'chevron-down' : 'chevron-up'}
                         size={20}
-                        color={COLORS.textDim}
+                        color={colors.textDim}
                     />
                 </TouchableOpacity>
                 <TextInput
                     style={styles.input}
                     placeholder="Type a message..."
-                    placeholderTextColor={COLORS.textDim}
+                    placeholderTextColor={colors.textDim}
                     value={inputText}
                     onChangeText={setInputText}
                     onFocus={() => setShowQuickReplies(false)}
@@ -255,7 +244,7 @@ export default function ChatScreen() {
                     <Ionicons
                         name="send"
                         size={18}
-                        color={inputText.trim() ? '#fff' : COLORS.textDim}
+                        color={inputText.trim() ? '#fff' : colors.textDim}
                     />
                 </TouchableOpacity>
             </View>
@@ -263,128 +252,130 @@ export default function ChatScreen() {
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: COLORS.primary },
-    header: {
-        paddingBottom: 12,
-        paddingHorizontal: 16,
-    },
-    headerRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    backBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: COLORS.surfaceLight,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    headerInfo: { flex: 1 },
-    headerName: { color: COLORS.text, fontSize: 17, fontWeight: '700' },
-    headerSub: { color: COLORS.textDim, fontSize: 12, marginTop: 1 },
-    callBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'rgba(0,212,170,0.1)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    messageList: {
-        paddingHorizontal: 16,
-        paddingTop: 16,
-        paddingBottom: 8,
-        flexGrow: 1,
-    },
-    messageBubbleRow: {
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        marginBottom: 10,
-        gap: 8,
-    },
-    myMessageRow: {
-        justifyContent: 'flex-end',
-    },
-    avatarSmall: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: COLORS.surfaceLight,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    bubble: {
-        maxWidth: '75%',
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        borderRadius: 18,
-    },
-    myBubble: {
-        backgroundColor: COLORS.myBubble,
-        borderBottomRightRadius: 4,
-    },
-    theirBubble: {
-        backgroundColor: COLORS.theirBubble,
-        borderBottomLeftRadius: 4,
-    },
-    bubbleText: { color: COLORS.text, fontSize: 14, lineHeight: 20 },
-    myBubbleText: { color: COLORS.primary },
-    bubbleTime: { color: COLORS.textDim, fontSize: 10, marginTop: 4, textAlign: 'right' },
-    myBubbleTime: { color: 'rgba(10,14,33,0.5)' },
-    emptyChat: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 80,
-        gap: 8,
-    },
-    emptyChatText: { color: COLORS.textDim, fontSize: 16, fontWeight: '600' },
-    emptyChatSub: { color: COLORS.surfaceLight, fontSize: 13 },
-    quickReplies: {
-        paddingVertical: 10,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(255,255,255,0.04)',
-    },
-    quickReplyBtn: {
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        backgroundColor: COLORS.surface,
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
-    },
-    quickReplyText: { color: COLORS.text, fontSize: 13, fontWeight: '500' },
-    inputContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        backgroundColor: COLORS.surface,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(255,255,255,0.06)',
-        gap: 8,
-    },
-    quickToggle: { padding: 6 },
-    input: {
-        flex: 1,
-        backgroundColor: COLORS.surfaceLight,
-        borderRadius: 24,
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        color: COLORS.text,
-        fontSize: 14,
-    },
-    sendBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: COLORS.surfaceLight,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    sendBtnActive: {
-        backgroundColor: COLORS.accent,
-    },
-});
+function createStyles(colors: ThemeColors) {
+    return StyleSheet.create({
+        container: { flex: 1, backgroundColor: colors.background },
+        header: {
+            paddingBottom: 12,
+            paddingHorizontal: 16,
+        },
+        headerRow: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+        },
+        backBtn: {
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: colors.surfaceLight,
+            justifyContent: 'center',
+            alignItems: 'center',
+        },
+        headerInfo: { flex: 1 },
+        headerName: { color: colors.text, fontSize: 17, fontWeight: '700' },
+        headerSub: { color: colors.textDim, fontSize: 12, marginTop: 1 },
+        callBtn: {
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: `${colors.primary}1A`,
+            justifyContent: 'center',
+            alignItems: 'center',
+        },
+        messageList: {
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 8,
+            flexGrow: 1,
+        },
+        messageBubbleRow: {
+            flexDirection: 'row',
+            alignItems: 'flex-end',
+            marginBottom: 10,
+            gap: 8,
+        },
+        myMessageRow: {
+            justifyContent: 'flex-end',
+        },
+        avatarSmall: {
+            width: 28,
+            height: 28,
+            borderRadius: 14,
+            backgroundColor: colors.surfaceLight,
+            justifyContent: 'center',
+            alignItems: 'center',
+        },
+        bubble: {
+            maxWidth: '75%',
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            borderRadius: 18,
+        },
+        myBubble: {
+            backgroundColor: colors.primary,
+            borderBottomRightRadius: 4,
+        },
+        theirBubble: {
+            backgroundColor: colors.surfaceLight,
+            borderBottomLeftRadius: 4,
+        },
+        bubbleText: { color: colors.text, fontSize: 14, lineHeight: 20 },
+        myBubbleText: { color: '#fff' },
+        bubbleTime: { color: colors.textDim, fontSize: 10, marginTop: 4, textAlign: 'right' },
+        myBubbleTime: { color: 'rgba(255,255,255,0.6)' },
+        emptyChat: {
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingVertical: 80,
+            gap: 8,
+        },
+        emptyChatText: { color: colors.textDim, fontSize: 16, fontWeight: '600' },
+        emptyChatSub: { color: colors.textSecondary, fontSize: 13 },
+        quickReplies: {
+            paddingVertical: 10,
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+        },
+        quickReplyBtn: {
+            paddingHorizontal: 14,
+            paddingVertical: 8,
+            backgroundColor: colors.surface,
+            borderRadius: 20,
+            borderWidth: 1,
+            borderColor: colors.border,
+        },
+        quickReplyText: { color: colors.text, fontSize: 13, fontWeight: '500' },
+        inputContainer: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            backgroundColor: colors.surface,
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+            gap: 8,
+        },
+        quickToggle: { padding: 6 },
+        input: {
+            flex: 1,
+            backgroundColor: colors.surfaceLight,
+            borderRadius: 24,
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            color: colors.text,
+            fontSize: 14,
+        },
+        sendBtn: {
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: colors.surfaceLight,
+            justifyContent: 'center',
+            alignItems: 'center',
+        },
+        sendBtnActive: {
+            backgroundColor: colors.primary,
+        },
+    });
+}

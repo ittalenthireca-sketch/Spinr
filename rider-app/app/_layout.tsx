@@ -13,6 +13,7 @@ import { useRiderSocket } from '../hooks/useRiderSocket';
 import SpinrConfig from '@shared/config/spinr.config';
 import { ErrorBoundary } from '@shared/components/ErrorBoundary';
 import { OfflineBanner } from '@shared/components/OfflineBanner';
+import { ThemeProvider, useTheme } from '@shared/theme/ThemeContext';
 import {
   initFirebaseServices,
   requestPushPermissionAndGetToken,
@@ -238,12 +239,27 @@ export default function RootLayout() {
   }
 
   return (
+    <ThemeProvider>
+      <RootLayoutInner isOffline={isOffline} setIsOffline={setIsOffline} />
+    </ThemeProvider>
+  );
+}
+
+function RootLayoutInner({
+  isOffline,
+  setIsOffline,
+}: {
+  isOffline: boolean;
+  setIsOffline: (v: boolean) => void;
+}) {
+  const { isDark } = useTheme();
+  return (
     <ErrorBoundary>
       <OfflineBanner visible={isOffline} onVisibilityChange={setIsOffline} />
       <GestureHandlerRootView>
         <View style={{ flex: 1 }}>
           <SafeAreaProvider>
-            <StatusBar style={isOffline ? "light" : "dark"} />
+            <StatusBar style={isOffline ? "light" : isDark ? "light" : "dark"} />
             <Stack
               screenOptions={{
                 headerShown: false,

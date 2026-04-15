@@ -11,6 +11,7 @@ import { useLocationStore } from '@shared/store/locationStore';
 import SpinrConfig from '@shared/config/spinr.config';
 import { ErrorBoundary } from '@shared/components/ErrorBoundary';
 import { OfflineBanner } from '@shared/components/OfflineBanner';
+import { ThemeProvider, useTheme } from '@shared/theme/ThemeContext';
 import {
   initFirebaseServices,
   requestPushPermissionAndGetToken,
@@ -200,11 +201,26 @@ export default function RootLayout() {
   }
 
   return (
+    <ThemeProvider>
+      <DriverRootLayoutInner isOffline={isOffline} setIsOffline={setIsOffline} />
+    </ThemeProvider>
+  );
+}
+
+function DriverRootLayoutInner({
+  isOffline,
+  setIsOffline,
+}: {
+  isOffline: boolean;
+  setIsOffline: (v: boolean) => void;
+}) {
+  const { isDark } = useTheme();
+  return (
     <ErrorBoundary>
       <OfflineBanner visible={isOffline} onVisibilityChange={setIsOffline} />
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
-          <StatusBar style={isOffline ? "light" : "dark"} />
+          <StatusBar style={isOffline ? "light" : isDark ? "light" : "dark"} />
           <Stack
             screenOptions={{
               headerShown: false,
