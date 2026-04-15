@@ -17,6 +17,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '@shared/store/authStore';
 import api, { setInMemoryToken } from '@shared/api/client';
 import CustomAlert from '@shared/components/CustomAlert';
+import Analytics from '@shared/analytics';
 import { useTheme } from '@shared/theme/ThemeContext';
 import type { ThemeColors } from '@shared/theme/index';
 
@@ -145,6 +146,7 @@ export default function OtpScreen() {
         if (token) {
           setInMemoryToken(token);
           await storage.setItem('auth_token', token);
+          Analytics.otpVerified();
           if (userData) {
             useAuthStore.setState({
               user: userData,
@@ -152,6 +154,7 @@ export default function OtpScreen() {
               isInitialized: true,
               isLoading: false,
             });
+            Analytics.login();
           } else {
             await initialize();
           }

@@ -14,6 +14,8 @@ import SpinrConfig from '@shared/config/spinr.config';
 import { ErrorBoundary } from '@shared/components/ErrorBoundary';
 import { OfflineBanner } from '@shared/components/OfflineBanner';
 import { ThemeProvider, useTheme } from '@shared/theme/ThemeContext';
+import { captureMessage, setUser } from '@shared/services/errorReporting';
+import Analytics from '@shared/analytics';
 import {
   initFirebaseServices,
   requestPushPermissionAndGetToken,
@@ -103,6 +105,8 @@ export default function RootLayout() {
         // an authenticated session (below).
         await initFirebaseServices();
 
+        captureMessage('rider-app cold start', 'log');
+
         // Android notification channels. Android 8+ REQUIRES a channel
         // or FCM messages are silently dropped. `ride-updates` is
         // HIGH importance (not MAX like the driver app's `ride-offers`
@@ -171,6 +175,10 @@ export default function RootLayout() {
           platform: Platform.OS,
         });
         fcmRegisteredRef.current = true;
+        // Tag error reports with user identity from this point on.
+        const uid = useAuthStore.getState().user?.id;
+        if (uid) setUser(uid);
+        Analytics.login();
         console.log('[Push] Rider FCM token registered with backend');
       } catch (e) {
         console.log('[Push] Rider FCM token registration failed:', e);

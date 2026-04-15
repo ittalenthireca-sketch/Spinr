@@ -18,6 +18,7 @@ import CustomAlert from '@shared/components/CustomAlert';
 import api from '@shared/api/client';
 import { useTheme } from '@shared/theme/ThemeContext';
 import type { ThemeColors } from '@shared/theme/index';
+import Analytics from '@shared/analytics';
 
 const PAYMENT_METHODS = [
   { id: 'card', name: 'Credit Card', icon: 'card', last4: '4242' },
@@ -53,6 +54,11 @@ export default function PaymentConfirmScreen() {
     isSubmitting.current = true;
     try {
       const ride = await createRide(selectedPayment);
+      Analytics.rideRequested({
+        vehicle_type: selectedVehicle?.name ?? 'unknown',
+        estimated_fare: totalFare,
+      });
+      Analytics.paymentInitiated({ method: selectedPayment, amount: totalFare });
       router.replace('/driver-arriving?rideId=' + ride.id);
     } catch (error: any) {
       setAlertState({ visible: true, title: 'Error', message: error.message || 'Failed to book ride', variant: 'danger' });

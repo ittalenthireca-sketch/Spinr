@@ -13,6 +13,7 @@ import CustomAlert from '@shared/components/CustomAlert';
 import api from '@shared/api/client';
 import { useTheme } from '@shared/theme/ThemeContext';
 import type { ThemeColors } from '@shared/theme/index';
+import Analytics from '@shared/analytics';
 
 const MAP_PROVIDER = Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined;
 const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -130,8 +131,15 @@ export default function RideCompletedScreen() {
       if (!alreadyPaid) {
         try {
           await api.post(`/rides/${rideId}/process-payment`, { tip_amount: tipAmount });
+          const total = (currentRide?.total_fare || 0) + (tipAmount || 0);
+          Analytics.paymentCompleted({ method: 'default', amount: total });
         } catch { /* backend handles idempotency */ }
       }
+
+      Analytics.rideCompleted({
+        fare: currentRide?.total_fare || 0,
+        distance_km: currentRide?.distance_km,
+      });
 
       // 3. Trigger app store rating prompt after good rides
       try {

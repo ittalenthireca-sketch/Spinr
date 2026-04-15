@@ -2,6 +2,7 @@ import React, { Component, useMemo, type ErrorInfo, type ReactNode } from 'react
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import type { ThemeColors } from '../theme/index';
+import { captureException } from '../services/errorReporting';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -80,22 +81,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   async reportError(error: Error, errorInfo: ErrorInfo): Promise<void> {
-    try {
-      // In production, send error to your error tracking service
-      if (__DEV__) {
-        console.error('[ErrorBoundary] Error details:', {
-          message: error.message,
-          stack: error.stack,
-          componentStack: errorInfo.componentStack,
-        });
-      } else {
-        // Production error reporting
-        // Example: Sentry.captureException(error, { extra: { componentStack: errorInfo.componentStack } });
-        console.error('[ErrorBoundary] Production error logged');
-      }
-    } catch (reportError) {
-      console.error('[ErrorBoundary] Failed to report error:', reportError);
-    }
+    captureException(error, {
+      componentStack: errorInfo.componentStack ?? '',
+    });
   }
 
   handleRetry = (): void => {

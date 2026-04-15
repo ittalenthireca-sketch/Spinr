@@ -145,8 +145,14 @@ export default function LoginScreen() {
               styles.inputContainer,
               focused && styles.inputContainerFocused,
             ]}
+            accessible={false}
           >
-            <View style={styles.flagContainer}>
+            <View
+              style={styles.flagContainer}
+              accessible={true}
+              accessibilityLabel="Canada +1"
+              accessibilityRole="text"
+            >
               <Text style={styles.flagEmoji}>🇨🇦</Text>
               <Text style={styles.countryCode}>+1</Text>
               <Ionicons name="chevron-down" size={14} color={colors.textDim} />
@@ -165,6 +171,9 @@ export default function LoginScreen() {
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               testID="phone-input"
+              accessibilityLabel="Phone number"
+              accessibilityHint="Enter your 10-digit Canadian phone number"
+              accessibilityRole="text"
             />
             {isValid && (
               <View style={styles.checkIcon}>
@@ -192,6 +201,10 @@ export default function LoginScreen() {
           disabled={loading || !isValid}
           activeOpacity={0.85}
           testID="send-otp-btn"
+          accessibilityLabel="Send verification code"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: loading || !isValid }}
+          accessibilityHint="Sends a 6-digit code to your phone number"
         >
           {loading ? (
             <ActivityIndicator color="#fff" size="small" />

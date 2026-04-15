@@ -165,7 +165,11 @@ export default function HomeScreen() {
                 )}
               </View>
             </View>
-            <TouchableOpacity style={styles.notificationButton}>
+            <TouchableOpacity
+              style={styles.notificationButton}
+              accessibilityLabel="Notifications"
+              accessibilityRole="button"
+            >
               <Ionicons name="notifications-outline" size={24} color={colors.text} />
             </TouchableOpacity>
           </View>
@@ -229,15 +233,20 @@ export default function HomeScreen() {
         </View>
 
         {/* SOS Button - Left Side */}
-        <TouchableOpacity style={styles.sosButton} onPress={() => {
-          // SOS Logic
-          setAlertState({
-            visible: true,
-            title: 'SOS Triggered',
-            message: 'Emergency services have been alerted. Stay calm and stay where you are.',
-            variant: 'danger',
-          });
-        }}>
+        <TouchableOpacity
+          style={styles.sosButton}
+          accessibilityLabel="SOS emergency button"
+          accessibilityRole="button"
+          accessibilityHint="Alerts emergency services"
+          onPress={() => {
+            setAlertState({
+              visible: true,
+              title: 'SOS Triggered',
+              message: 'Emergency services have been alerted. Stay calm and stay where you are.',
+              variant: 'danger',
+            });
+          }}
+        >
           <Ionicons name="shield-checkmark" size={24} color="#FFFFFF" />
           <Text style={styles.sosText}>SOS</Text>
         </TouchableOpacity>
@@ -279,7 +288,13 @@ export default function HomeScreen() {
 
         {/* Search Bar + AI Button */}
         <View style={styles.searchRow}>
-          <TouchableOpacity style={styles.searchBar} onPress={handleSearchPress}>
+          <TouchableOpacity
+            style={styles.searchBar}
+            onPress={handleSearchPress}
+            accessibilityLabel="Where to? Search for a destination"
+            accessibilityRole="button"
+            accessibilityHint="Opens the destination search screen"
+          >
             <Ionicons name="search" size={22} color={colors.primary} />
             <Text style={styles.searchPlaceholder}>Where to?</Text>
           </TouchableOpacity>
@@ -295,6 +310,9 @@ export default function HomeScreen() {
               });
             }}
             activeOpacity={0.8}
+            accessibilityLabel="AI ride booking"
+            accessibilityRole="button"
+            accessibilityHint="AI-powered booking assistant, coming soon"
           >
             <View style={styles.aiIconGlow} />
             <Ionicons name="sparkles" size={20} color="#FFFFFF" />

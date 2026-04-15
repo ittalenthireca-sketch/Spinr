@@ -82,6 +82,43 @@ _(to be recorded as sprint progresses)_
 
 ---
 
+## SPR-03 — Polish + Accessibility
+**Date:** 2026-04-15
+**Branch:** `claude/complete-product-streamline-Zj6lW`
+**Status:** ✅ Complete
+
+### Tasks
+| ID | Task | Status | Notes |
+|---|---|---|---|
+| 3a | Accessibility: fix critical violations on login + home + booking CTA | ✅ | accessibilityLabel/Role/State/Hint on phone input, send-OTP button, "Where to?" search bar, SOS, notifications — rider-app + driver-app |
+| 3b | Sentry DSN wired | ✅ | shared/services/errorReporting.ts (Crashlytics facade); ErrorBoundary wired; admin-dashboard: @sentry/nextjs + sentry.client/server.config.ts; setUser on auth |
+| 3c | Analytics: ride funnel events | ✅ | shared/analytics/index.ts; otp_verified, login, ride_requested, payment_initiated/completed, ride_completed; Firebase Analytics (web) + @react-native-firebase/analytics (native) |
+| 3d | OTA update strategy — EAS preview channel CI | ✅ | CI job `ota-update` runs `eas update --channel preview` for rider+driver on every main merge; production channel is manual (SPR-04) |
+
+### Decisions
+| ID | Decision |
+|---|---|
+| D-012 | Use Firebase Crashlytics (already native dep) as Sentry compat facade for mobile; swap to @sentry/react-native at SPR-04 with EAS build |
+| D-013 | Analytics uses firebase/analytics on web, @react-native-firebase/analytics on native; both silently no-op if Firebase not configured |
+| D-014 | OTA channel strategy: test (internal APK) → preview (CI auto-push on main) → production (manual SPR-04 release) |
+
+### Deliverables
+- [x] `shared/services/errorReporting.ts` (Crashlytics facade)
+- [x] `shared/analytics/index.ts` (typed event catalog)
+- [x] `shared/components/ErrorBoundary.tsx` — wired to captureException
+- [x] `rider-app/app/_layout.tsx` — errorReporting + analytics init
+- [x] `driver-app/app/_layout.tsx` — errorReporting + analytics init
+- [x] `rider-app/app/otp.tsx` — otpVerified + login events
+- [x] `rider-app/app/payment-confirm.tsx` — rideRequested + paymentInitiated
+- [x] `rider-app/app/ride-completed.tsx` — rideCompleted + paymentCompleted
+- [x] `admin-dashboard/sentry.client.config.ts` + `sentry.server.config.ts`
+- [x] `admin-dashboard/next.config.ts` — withSentryConfig
+- [x] `admin-dashboard/package.json` — @sentry/nextjs added
+- [x] Accessibility: login.tsx (both apps), (tabs)/index.tsx
+- [x] CI job `ota-update` in `.github/workflows/ci.yml`
+
+---
+
 ## SPR-02 — Quality Gates
 **Date:** 2026-04-15 (started)
 **Branch:** `claude/complete-product-streamline-Zj6lW`
