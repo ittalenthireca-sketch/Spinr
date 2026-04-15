@@ -231,9 +231,7 @@ class TestTransfer:
     def test_transfer_to_valid_recipient(self, client):
         mock_db = make_mock_db()
         mock_db.users.find_one = AsyncMock(return_value=RECIPIENT_USER)
-        mock_db.wallets.find_one = AsyncMock(
-            side_effect=[SAMPLE_WALLET, RECIPIENT_WALLET]
-        )
+        mock_db.wallets.find_one = AsyncMock(side_effect=[SAMPLE_WALLET, RECIPIENT_WALLET])
 
         with patch("routes.wallet.db", mock_db):
             resp = client.post(
@@ -276,9 +274,7 @@ class TestTransfer:
         empty_wallet = {**SAMPLE_WALLET, "balance": 2.0}
         mock_db = make_mock_db()
         mock_db.users.find_one = AsyncMock(return_value=RECIPIENT_USER)
-        mock_db.wallets.find_one = AsyncMock(
-            side_effect=[empty_wallet, RECIPIENT_WALLET]
-        )
+        mock_db.wallets.find_one = AsyncMock(side_effect=[empty_wallet, RECIPIENT_WALLET])
 
         with patch("routes.wallet.db", mock_db):
             resp = client.post(

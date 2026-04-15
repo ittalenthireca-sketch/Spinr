@@ -391,9 +391,7 @@ class TestAdminGetParticipants:
         mock_db.quests.find_one = AsyncMock(return_value=SAMPLE_QUEST)
         mock_db.get_rows = AsyncMock(return_value=[SAMPLE_PROGRESS])
         mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
-        mock_db.users.find_one = AsyncMock(
-            return_value={"id": "user_123", "first_name": "Test", "last_name": "Driver"}
-        )
+        mock_db.users.find_one = AsyncMock(return_value={"id": "user_123", "first_name": "Test", "last_name": "Driver"})
 
         with patch("routes.quests.db", mock_db):
             resp = client.get("/api/v1/quests/admin/quest_1/participants")

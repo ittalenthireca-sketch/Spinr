@@ -59,6 +59,7 @@ import logging  # noqa: E402  (must precede server imports to suppress log noise
 logging.disable(logging.WARNING)
 try:
     from loguru import logger as _loguru_logger
+
     _loguru_logger.disable("routes")
     _loguru_logger.disable("core")
     _loguru_logger.disable("utils")
@@ -239,7 +240,6 @@ async def bench_ws(app, samples: int) -> dict:
     """
     from fastapi.testclient import TestClient
 
-
     mock_db = make_mock_db()
     mock_db.users.find_one = AsyncMock(return_value=MOCK_USER)
 
@@ -315,8 +315,7 @@ def check_regression(current: list[dict], baseline_path: str) -> list[str]:
         pct_change = ((current_p95 - baseline_p95) / baseline_p95) * 100
         if pct_change > P95_REGRESSION_THRESHOLD_PCT:
             failures.append(
-                f"{result['label']}: P95 regressed {pct_change:.1f}% "
-                f"({baseline_p95:.1f}ms → {current_p95:.1f}ms)"
+                f"{result['label']}: P95 regressed {pct_change:.1f}% ({baseline_p95:.1f}ms → {current_p95:.1f}ms)"
             )
     return failures
 
@@ -337,10 +336,10 @@ def print_table(http_results: list[dict], ws_result: dict):
     print(divider)
     for r in http_results:
         if r.get("samples", 0) == 0:
-            print(f"  {r['label']:<{COL_W-2}} {'ERR':>7}")
+            print(f"  {r['label']:<{COL_W - 2}} {'ERR':>7}")
             continue
         print(
-            f"  {r['label']:<{COL_W-2}}"
+            f"  {r['label']:<{COL_W - 2}}"
             f" {r['p50_ms']:>6.1f}ms"
             f" {r['p95_ms']:>6.1f}ms"
             f" {r['p99_ms']:>6.1f}ms"
@@ -351,7 +350,7 @@ def print_table(http_results: list[dict], ws_result: dict):
     print(divider)
     if ws_result.get("samples", 0) > 0:
         print(
-            f"  {'WS connect+auth':<{COL_W-2}}"
+            f"  {'WS connect+auth':<{COL_W - 2}}"
             f" {ws_result['p50_ms']:>6.1f}ms"
             f" {ws_result['p95_ms']:>6.1f}ms"
             f" {ws_result['p99_ms']:>6.1f}ms"
@@ -360,7 +359,7 @@ def print_table(http_results: list[dict], ws_result: dict):
             f" {ws_result.get('errors', 0):>4}"
         )
     else:
-        print(f"  {'WS connect+auth':<{COL_W-2}}  [skipped or all failed]")
+        print(f"  {'WS connect+auth':<{COL_W - 2}}  [skipped or all failed]")
     print(divider + "\n")
 
 

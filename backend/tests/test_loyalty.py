@@ -202,9 +202,7 @@ class TestEarnPoints:
     def test_already_awarded_returns_idempotent(self, client):
         mock_db = make_mock_db()
         mock_db.rides.find_one = AsyncMock(return_value=SAMPLE_RIDE)
-        mock_db.loyalty_transactions.find_one = AsyncMock(
-            return_value={"id": "txn_existing", "type": "ride_earned"}
-        )
+        mock_db.loyalty_transactions.find_one = AsyncMock(return_value={"id": "txn_existing", "type": "ride_earned"})
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.post("/api/v1/loyalty/earn?ride_id=ride_123")
