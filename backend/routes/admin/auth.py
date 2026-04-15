@@ -119,8 +119,8 @@ async def admin_login(request: Request, body: LoginRequest):
         "staff",
     ]
 
-    # 1. Super admin from env
-    if body.email == settings.ADMIN_EMAIL and body.password == settings.ADMIN_PASSWORD:
+    # 1. Super admin from env — only when ADMIN_PASSWORD is actually configured
+    if settings.ADMIN_PASSWORD and body.email == settings.ADMIN_EMAIL and body.password == settings.ADMIN_PASSWORD:
         token = jwt.encode(
             {
                 "user_id": "admin-001",

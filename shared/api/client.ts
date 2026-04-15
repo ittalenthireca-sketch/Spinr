@@ -197,9 +197,6 @@ const client = {
     };
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
-      console.log('DEBUG: Adding auth header for GET', url, 'Token starts with:', token.substring(0, 20));
-    } else {
-      console.log('DEBUG: NO TOKEN for GET', url);
     }
 
     const response = await fetchWithTimeout(`${API_URL}/api/v1${url}`, {

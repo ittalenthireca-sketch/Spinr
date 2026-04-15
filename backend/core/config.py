@@ -1,6 +1,7 @@
 import os
 from typing import Optional
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,8 +38,19 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8081,http://localhost:19006"
 
     # Admin credentials
+    # ADMIN_PASSWORD has no default — set it via the ADMIN_PASSWORD environment variable.
+    # The application will refuse to start in production/staging if it is unset.
     ADMIN_EMAIL: str = "admin@spinr.ca"
-    ADMIN_PASSWORD: str = "admin123"
+    ADMIN_PASSWORD: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _require_admin_password_in_prod(self) -> "Settings":
+        if self.ENV.lower() not in ("development", "test") and not self.ADMIN_PASSWORD:
+            raise ValueError(
+                "ADMIN_PASSWORD must be set via environment variable in non-development environments. "
+                "Set ADMIN_PASSWORD to a strong secret before deploying."
+            )
+        return self
 
     # Rate limiting
     RATE_LIMIT: str = "10/minute"
