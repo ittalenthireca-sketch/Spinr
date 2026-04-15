@@ -4,25 +4,13 @@ import * as Location from 'expo-location';
 import { Platform, Alert, Vibration, Linking, AppState } from 'react-native';
 
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected';
-import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { router } from 'expo-router';
 
-// expo-notifications throws at import time inside Expo Go since SDK 53 because
-// push-token APIs were removed from Expo Go. Lazy-load it only in real builds
-// (standalone / dev-client) so the dashboard still mounts in Expo Go.
-const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
-let Notifications: any = null;
-if (!isExpoGo) {
-  try {
-    Notifications = require('expo-notifications');
-  } catch (e) {
-    console.log('expo-notifications unavailable:', e);
-  }
-}
 import { useAuthStore } from '@shared/store/authStore';
 import { useDriverStore } from '../store/driverStore';
 import api from '@shared/api/client';
 import { API_URL } from '@shared/config';
+import { onForegroundMessage } from '@shared/services/firebase';
 import { Dimensions } from 'react-native';
 
 const { height } = Dimensions.get('window');
@@ -66,7 +54,9 @@ export const useDriverDashboard = (): UseDriverDashboardReturn => {
     setIncomingRide,
     resetRideState,
     fetchActiveRide,
+    hydrateDriverRideState,
     fetchEarnings,
+    applyDriverConfig,
     earnings,
   } = useDriverStore();
 
@@ -140,6 +130,27 @@ export const useDriverDashboard = (): UseDriverDashboardReturn => {
     return () => sub.remove();
   }, [refreshProfile]);
 
+  // ─── Fetch driver operational config from backend ────────────────
+  // `GET /drivers/config` returns server-tuned values for the
+  // ride-offer countdown and the pickup-geofence radius. Fetched once
+  // per authenticated session — if it fails the store keeps its
+  // module-level fallbacks (15s countdown, 100m pickup radius) so the
+  // driver flow never breaks on a transient backend hiccup.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get('/drivers/config');
+        if (cancelled) return;
+        applyDriverConfig(res.data || {});
+      } catch (e) {
+        console.log('[driver-config] fetch failed, using fallbacks:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user, applyDriverConfig]);
+
   // ─── Location Tracking ───────────────────────────────────────────
   useEffect(() => {
     (async () => {
@@ -178,6 +189,12 @@ export const useDriverDashboard = (): UseDriverDashboardReturn => {
   }, []);
 
   // ─── Batch Location Upload ───────────────────────────────────────
+  // G16: Persist buffer to AsyncStorage so crash doesn't lose GPS
+  // breadcrumbs. On upload success, clear both in-memory + persisted.
+  // On cold start, the buffer initializes from in-memory (empty) but
+  // a recovery effect below loads any persisted points.
+  const LOCATION_BUFFER_KEY = 'spinr_location_buffer';
+
   const uploadLocationBatch = useCallback(async () => {
     if (locationBufferRef.current.length === 0) return;
 
@@ -189,10 +206,37 @@ export const useDriverDashboard = (): UseDriverDashboardReturn => {
         points: pointsToUpload,
       });
       console.log(`Uploaded ${pointsToUpload.length} location points`);
+      // Clear persisted buffer on success
+      try {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        await AsyncStorage.removeItem(LOCATION_BUFFER_KEY);
+      } catch {}
     } catch (err) {
       console.log('Location batch upload failed:', err);
       locationBufferRef.current = [...pointsToUpload, ...locationBufferRef.current];
+      // Persist to AsyncStorage so crash doesn't lose them
+      try {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        await AsyncStorage.setItem(LOCATION_BUFFER_KEY, JSON.stringify(locationBufferRef.current.slice(-500)));
+      } catch {}
     }
+  }, []);
+
+  // Recover persisted location buffer on cold start (G16)
+  useEffect(() => {
+    (async () => {
+      try {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        const saved = await AsyncStorage.getItem(LOCATION_BUFFER_KEY);
+        if (saved) {
+          const points = JSON.parse(saved);
+          if (Array.isArray(points) && points.length > 0) {
+            locationBufferRef.current = [...points, ...locationBufferRef.current];
+            console.log(`[Location] Recovered ${points.length} persisted GPS points`);
+          }
+        }
+      } catch {}
+    })();
   }, []);
 
   // Upload batch every 30 seconds
@@ -293,6 +337,23 @@ export const useDriverDashboard = (): UseDriverDashboardReturn => {
       case 'ride_cancelled':
         Alert.alert('Ride Cancelled', 'The rider has cancelled this ride.');
         resetRideState();
+        break;
+
+      // G20: Reply to server heartbeat so the backend doesn't mark
+      // this connection as dead after HEARTBEAT_TIMEOUT (10s).
+      case 'ping':
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'pong' }));
+        }
+        break;
+
+      // G3: Rider-to-driver chat messages. Backend websocket.py forwards
+      // chat_message to `driver_{user_id}`. Push into driverStore so
+      // chat.tsx updates in real-time without polling. [SPR-01]
+      case 'chat_message':
+        console.log('[WS] Chat from rider:', data.text?.slice(0, 40));
+        useDriverStore.getState().addChatMessage(data);
+        Vibration.vibrate(100);
         break;
     }
   }, [setIncomingRide, resetRideState]);
@@ -486,76 +547,71 @@ export const useDriverDashboard = (): UseDriverDashboardReturn => {
     if (url) Linking.openURL(url);
   };
 
-  // ─── Fetch active ride on mount ──────────────────────────────────
+  // ─── Crash recovery: hydrate from AsyncStorage then fetch from API ──
+  // hydrateDriverRideState() restores the last persisted ride state
+  // instantly (no network required) so the driver sees their active ride
+  // immediately on restart. fetchActiveRide() then confirms/updates the
+  // state with the live server response.
+  useEffect(() => {
+    if (user) {
+      hydrateDriverRideState().then(() => fetchActiveRide());
+    }
+  }, [user]);
+
+  // ─── Fetch earnings when online ─────────────────────────────────
   useEffect(() => {
     if (isOnline) {
-      fetchActiveRide();
       fetchEarnings('today');
     }
   }, [isOnline]);
 
-  // ─── Push Notifications Setup ────────────────────────────────────
+  // ─── Foreground FCM Message Handler ──────────────────────────────
+  // FCM token registration + permissions live in app/_layout.tsx via
+  // @shared/services/firebase. Here we only subscribe to foreground
+  // messages so we can bridge them into the driver store — ride offers
+  // that arrive via FCM (e.g. when the WebSocket connection is stale
+  // or the device was briefly backgrounded) follow the same path as
+  // the WebSocket `new_ride_assignment` handler above.
+  //
+  // Background / quit-state FCM messages are handled by the top-level
+  // setBackgroundMessageHandler in _layout.tsx and surfaced as OS
+  // notifications via the `ride-offers` Android channel.
   useEffect(() => {
-    if (!isOnline) return;
-    // Skip entirely in Expo Go — push APIs were removed from Expo Go in SDK 53.
-    if (!Notifications) {
-      console.log('[Push] Skipping — Notifications not available (Expo Go)');
-      return;
-    }
+    if (!isOnline || !user) return;
 
-    const setupNotifications = async () => {
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
+    const unsubscribe = onForegroundMessage((remoteMessage: any) => {
+      const data = remoteMessage?.data || {};
+      console.log('[Push] Driver foreground FCM:', data?.type || remoteMessage?.notification?.title);
 
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-
-      if (finalStatus !== 'granted') {
-        console.log('Push notification permission not granted');
-        return;
-      }
-
-      const token = await Notifications.getExpoPushTokenAsync();
-      console.log('Push token:', token.data);
-
-      try {
-        await api.post('/drivers/push-token', {
-          push_token: token.data,
-          platform: Platform.OS,
-        });
-      } catch (err) {
-        console.log('Failed to register push token:', err);
-      }
-    };
-
-    setupNotifications();
-
-    const notificationListener = Notifications.addNotificationReceivedListener((notification: any) => {
-      const data = notification.request.content.data;
-      console.log('Push notification received:', data);
-
-      if (data?.type === 'new_ride_offer') {
+      if (data?.type === 'new_ride_assignment' && data?.ride_id) {
         Vibration.vibrate([0, 500, 200, 500]);
-        fetchActiveRide();
-      }
-    });
-
-    const responseListener = Notifications.addNotificationResponseReceivedListener((response: any) => {
-      const data = response.notification.request.content.data;
-      console.log('Notification tapped:', data);
-
-      if (data?.ride_id) {
-        fetchActiveRide();
+        // Hydrate an incoming ride offer from the FCM payload. Backend
+        // sends coordinates/addresses as strings in the `data` field
+        // (FCM data-only messages are all string-typed).
+        setIncomingRide({
+          ride_id: data.ride_id,
+          pickup_address: data.pickup_address || '',
+          dropoff_address: data.dropoff_address || '',
+          pickup_lat: parseFloat(data.pickup_lat || '0'),
+          pickup_lng: parseFloat(data.pickup_lng || '0'),
+          dropoff_lat: parseFloat(data.dropoff_lat || '0'),
+          dropoff_lng: parseFloat(data.dropoff_lng || '0'),
+          fare: parseFloat(data.fare || '0'),
+          distance_km: data.distance_km ? parseFloat(data.distance_km) : undefined,
+          duration_minutes: data.duration_minutes ? parseFloat(data.duration_minutes) : undefined,
+          rider_name: data.rider_name,
+          rider_rating: data.rider_rating ? parseFloat(data.rider_rating) : undefined,
+        });
+      } else if (data?.type === 'ride_cancelled') {
+        Alert.alert('Ride Cancelled', 'The rider has cancelled this ride.');
+        resetRideState();
       }
     });
 
     return () => {
-      notificationListener.remove();
-      responseListener.remove();
+      if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [isOnline]);
+  }, [isOnline, user, setIncomingRide, resetRideState]);
 
   return {
     // State

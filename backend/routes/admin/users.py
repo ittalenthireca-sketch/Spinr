@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -22,16 +23,7 @@ async def admin_get_users(
     offset: int = 0,
     search: Optional[str] = None,
 ):
-    """Get all users (riders) with optional search and pagination."""
-    filters = {}
-    if search:
-        # Search across name, email, phone
-        filters["$or"] = [
-            {"first_name": {"$regex": search, "$options": "i"}},
-            {"last_name": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
-            {"phone": {"$regex": search, "$options": "i"}},
-        ]
+    """Get all users (riders) with optional search and pagination.
 
     users = await db_supabase.get_rows("users", filters, order="created_at", desc=True, limit=limit, offset=offset)
     return users

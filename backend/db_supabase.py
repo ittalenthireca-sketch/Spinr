@@ -1,5 +1,6 @@
 import asyncio
-from datetime import date, datetime
+import re
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -15,8 +16,20 @@ T = TypeVar("T")
 
 
 async def run_sync(func: Callable[[], T]) -> T:
+    """Run a synchronous Supabase call in a thread and retry once on transient
+    HTTP/2 connection errors (h2.ConnectionTerminated / GOAWAY) that Supabase
+    sends when the stream limit is reached on a long-lived connection."""
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, func)  # type: ignore
+    try:
+        return await loop.run_in_executor(None, func)  # type: ignore
+    except Exception as exc:
+        exc_name = type(exc).__name__
+        exc_str = str(exc)
+        if "ConnectionTerminated" in exc_name or "ConnectionTerminated" in exc_str:
+            logger.warning(f"Supabase HTTP/2 ConnectionTerminated — retrying once: {exc}")
+            await asyncio.sleep(0.25)
+            return await loop.run_in_executor(None, func)  # type: ignore
+        raise
 
 
 def _serialize_for_api(data: Any) -> Any:
@@ -87,9 +100,11 @@ async def get_all_corporate_accounts(
         query = supabase.table("corporate_accounts").select("*").range(skip, skip + limit - 1)
 
         if search:
-            # Search in name, contact_name, and contact_email
-            # Using ilike for case-insensitive search
-            query = query.or_(f"name.ilike.%{search}%,contact_name.ilike.%{search}%,contact_email.ilike.%{search}%")
+            # Escape special PostgREST ilike characters to prevent filter injection
+            safe = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            # Strip characters that could break PostgREST filter syntax
+            safe = re.sub(r"[,\.\(\)]", "", safe)
+            query = query.or_(f"name.ilike.%{safe}%,contact_name.ilike.%{safe}%,contact_email.ilike.%{safe}%")
 
         if is_active is not None:
             query = query.eq("is_active", is_active)
@@ -307,6 +322,57 @@ async def claim_driver_atomic(driver_id: str) -> bool:
     return await run_sync(_claim)
 
 
+async def claim_ride_atomic(ride_id: str, driver_id: str) -> bool:
+    """Atomically claim a ride offer for `driver_id`.
+
+    Issues a single conditional UPDATE that sets
+    ``status='driver_accepted'`` and ``driver_id=<driver>`` only if the
+    ride is (1) identified by `ride_id`, (2) in an open, claimable state
+    (`searching` or `driver_assigned`), and (3) either unassigned or
+    already pre-assigned to THIS driver. Supabase's PostgREST layer
+    evaluates all three filters atomically in one SQL statement, so two
+    drivers racing to accept the same offer cannot both succeed — the
+    loser's UPDATE matches zero rows and this function returns False.
+
+    Returns:
+        True  — we successfully claimed the ride and the driver-app can
+                proceed with the ride flow.
+        False — the ride was gone or already accepted by another driver;
+                the caller should surface a "ride already taken" UX.
+    """
+    if not supabase:
+        return False
+
+    now_iso = datetime.utcnow().isoformat()
+
+    def _claim():
+        res = (
+            supabase.table("rides")
+            .update(
+                {
+                    "status": "driver_accepted",
+                    "driver_id": driver_id,
+                    "driver_accepted_at": now_iso,
+                    "updated_at": now_iso,
+                }
+            )
+            .eq("id", ride_id)
+            # Status must be open/claimable. Any status past `driver_accepted`
+            # (arrived / in_progress / completed / cancelled) is terminal for
+            # the accept flow.
+            .in_("status", ["searching", "driver_assigned"])
+            # Ride must be either unassigned or already pre-assigned to this
+            # driver. PostgREST's `.or_()` accepts a comma-separated filter
+            # list; `is.null` maps to `IS NULL` in SQL.
+            .or_(f"driver_id.is.null,driver_id.eq.{driver_id}")
+            .execute()
+        )
+        data = _rows_from_res(res)
+        return len(data) > 0
+
+    return await run_sync(_claim)
+
+
 # ============ Ride Helpers ============
 
 
@@ -466,8 +532,14 @@ async def count_documents(table: str, filters: Optional[Dict[str, Any]] = None) 
         return 0
 
     def _fn():
-        q = supabase.table(table).select("id", count="exact", head=True)
+        # count="exact" makes PostgREST include the total count in Content-Range.
+        # We limit to 1 row so we don't fetch the full dataset; res.count still
+        # reflects the total rows matching the filter (not the page size).
+        # Note: head=True is NOT a valid parameter for select() in postgrest-py
+        # 2.x — using it would raise TypeError and cause a 500 on every call.
+        q = supabase.table(table).select("id", count="exact")
         q = _apply_filters(q, filters)
+        q = q.limit(1)
         res = q.execute()
         if hasattr(res, "count") and res.count is not None:
             return int(res.count)
@@ -564,66 +636,6 @@ async def rpc(func_name: str, params: Dict[str, Any]):
     return await run_sync(_fn)
 
 
-async def execute_query(query: str, params: Optional[Dict[str, Any]] = None):
-    """
-    Execute a raw SQL SELECT query and return all rows.
-    Uses Supabase's raw API to execute queries.
-
-    Args:
-        query: SQL query string (e.g., 'SELECT * FROM settings')
-        params: Optional dictionary of query parameters
-
-    Returns:
-        List of dictionaries representing rows
-    """
-    if not supabase:
-        return []
-
-    def _fn():
-        try:
-            # Use Supabase's raw() method for SELECT queries
-            response = supabase.rpc("exec_sql", {"query": query, "params": params or {}})
-            if hasattr(response, "execute"):
-                result = response.execute()
-                return result.data if result.data else []
-            return response.data if response.data else []
-        except Exception as e:
-            logger.warning(f"execute_query warning: {e}")
-            return []
-
-    return await run_sync(_fn)
-
-
-async def execute_write(query: str, params: Optional[Dict[str, Any]] = None):
-    """
-    Execute a raw SQL INSERT, UPDATE, or DELETE query.
-    Uses Supabase's raw API to execute queries.
-
-    Args:
-        query: SQL query string (e.g., 'INSERT INTO settings (key, value) VALUES ($1, $2)')
-        params: Optional dictionary of query parameters
-
-    Returns:
-        Dictionary with execution results
-    """
-    if not supabase:
-        return {"success": False, "error": "No supabase connection"}
-
-    def _fn():
-        try:
-            # Use Supabase's raw() method for write queries
-            response = supabase.rpc("exec_sql", {"query": query, "params": params or {}})
-            if hasattr(response, "execute"):
-                result = response.execute()
-                return {"success": True, "data": result.data}
-            return {"success": True, "data": response.data}
-        except Exception as e:
-            logger.warning(f"execute_write warning: {e}")
-            return {"success": False, "error": str(e)}
-
-    return await run_sync(_fn)
-
-
 # ============ Rides Admin Dashboard – New Helpers ============
 
 
@@ -635,7 +647,8 @@ async def get_ride_count_by_date_range(start_iso: str, end_iso: str) -> int:
     def _fn():
         res = (
             supabase.table("rides")
-            .select("id", count="exact", head=True)
+            .select("id", count="exact")
+            .limit(1)
             .gte("created_at", start_iso)
             .lt("created_at", end_iso)
             .execute()
@@ -706,7 +719,7 @@ async def get_ride_details_enriched(ride_id: str) -> Optional[Dict[str, Any]]:
         # Rider's total past rides count
         rider_count_res = await run_sync(
             lambda rid=rider_id: (
-                supabase.table("rides").select("id", count="exact", head=True).eq("rider_id", rid).execute()
+                supabase.table("rides").select("id", count="exact").limit(1).eq("rider_id", rid).execute()
             )
         )
         ride["rider_total_rides"] = (
@@ -771,7 +784,8 @@ async def get_ride_details_enriched(ride_id: str) -> Optional[Dict[str, Any]]:
             driver_completed_res = await run_sync(
                 lambda did=driver_id: (
                     supabase.table("rides")
-                    .select("id", count="exact", head=True)
+                    .select("id", count="exact")
+                    .limit(1)
                     .eq("driver_id", did)
                     .eq("status", "completed")
                     .execute()
@@ -784,7 +798,7 @@ async def get_ride_details_enriched(ride_id: str) -> Optional[Dict[str, Any]]:
             )
             driver_total_assigned_res = await run_sync(
                 lambda did=driver_id: (
-                    supabase.table("rides").select("id", count="exact", head=True).eq("driver_id", did).execute()
+                    supabase.table("rides").select("id", count="exact").limit(1).eq("driver_id", did).execute()
                 )
             )
             total_assigned = (
@@ -873,7 +887,8 @@ async def create_flag(flag_data: Dict[str, Any]) -> Dict[str, Any]:
     count_res = await run_sync(
         lambda: (
             supabase.table("flags")
-            .select("id", count="exact", head=True)
+            .select("id", count="exact")
+            .limit(1)
             .eq("target_type", target_type)
             .eq("target_id", target_id)
             .eq("is_active", True)
@@ -1021,3 +1036,74 @@ async def get_flags_for_target(target_type: str, target_id: str) -> List[Dict[st
             .execute()
         )
     )
+
+
+# ── Stripe webhook idempotency ────────────────────────────────────────
+# See migration 22_stripe_events.sql. These helpers back
+# routes/webhooks.py's dedup path: Stripe retries every event until we
+# return 2xx within 20s, so we MUST treat a replay of the same event.id
+# as a no-op — otherwise we double-mark rides paid, double-credit
+# wallets, and double-activate subscriptions.
+
+# PostgreSQL unique_violation SQLSTATE — raised as part of the error
+# string by postgrest-py when an INSERT conflicts with the PK.
+_PG_UNIQUE_VIOLATION = "23505"
+
+
+async def claim_stripe_event(event_id: str, event_type: str, payload: Dict[str, Any]) -> bool:
+    """Atomically claim a Stripe webhook event for processing.
+
+    Returns True if this call inserted the event row (caller should
+    proceed to process it). Returns False if the event_id is already
+    present (a retry — caller should return 200 without doing work).
+
+    Raises if Supabase is unreachable or the error is not a unique
+    violation — in that case the caller should return 5xx so Stripe
+    retries later.
+    """
+    if not supabase:
+        raise RuntimeError("Supabase client not configured — cannot persist stripe event")
+
+    serialized_payload = _serialize_for_api(payload)
+
+    def _fn() -> bool:
+        try:
+            supabase.table("stripe_events").insert(
+                {
+                    "event_id": event_id,
+                    "event_type": event_type,
+                    "payload": serialized_payload,
+                }
+            ).execute()
+            return True
+        except Exception as e:  # noqa: BLE001
+            msg = str(e).lower()
+            if _PG_UNIQUE_VIOLATION in msg or "duplicate key" in msg or "already exists" in msg:
+                logger.info(f"Stripe event {event_id} already claimed — treating as duplicate")
+                return False
+            raise
+
+    return await run_sync(_fn)
+
+
+async def mark_stripe_event_processed(event_id: str) -> None:
+    """Stamp processed_at=now() on a previously claimed stripe event row.
+
+    Called after the handler has finished the business-logic work for
+    an event. Failure here is non-fatal — the reconciliation job can
+    still distinguish processed vs. stuck events by the presence of
+    the updated_at stamp, and Stripe will not retry since we returned
+    2xx. Log and swallow.
+    """
+    if not supabase:
+        return
+
+    def _fn():
+        supabase.table("stripe_events").update({"processed_at": datetime.now(timezone.utc).isoformat()}).eq(
+            "event_id", event_id
+        ).execute()
+
+    try:
+        await run_sync(_fn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to stamp processed_at on stripe event {event_id}: {e}")

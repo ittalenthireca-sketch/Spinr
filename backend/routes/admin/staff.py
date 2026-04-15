@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 try:
@@ -74,7 +74,7 @@ class StaffUpdateRequest(BaseModel):
 
 
 @router.get("/staff")
-async def list_staff(authorization: Optional[str] = Header(None)):
+async def list_staff(admin: dict = Depends(get_admin_user)):
     """List all staff members."""
     staff = await db_supabase.get_rows("admin_staff", limit=100)
     # Remove passwords from response
@@ -85,9 +85,21 @@ async def list_staff(authorization: Optional[str] = Header(None)):
 
 
 @router.post("/staff")
-async def create_staff(req: StaffCreateRequest, authorization: Optional[str] = Header(None)):
-    """Create a new staff member with role-based module access."""
-    import hashlib
+async def create_staff(req: StaffCreateRequest, admin: dict = Depends(get_admin_user)):
+    """Create a new staff member with role-based module access.
+
+    Only super_admin can create new staff members.
+    """
+    if admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Only super admins can create staff")
+    # Basic password policy: short passwords defeat bcrypt's cost factor
+    # because the keyspace is too small. 12 chars is the floor; operators
+    # should pick much longer in practice.
+    if not req.password or len(req.password) < 12:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 12 characters long.",
+        )
 
     # Check if email already exists
     existing = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("admin_staff", {"email": req.email.lower()}, limit=1))
@@ -105,7 +117,9 @@ async def create_staff(req: StaffCreateRequest, authorization: Optional[str] = H
     staff = {
         "id": str(uuid.uuid4()),
         "email": req.email.lower(),
-        "password_hash": hashlib.sha256(req.password.encode()).hexdigest(),
+        # bcrypt, not sha256. See utils/password.py for the rationale
+        # + the legacy SHA256 auto-upgrade path on login.
+        "password_hash": hash_password(req.password),
         "first_name": req.first_name,
         "last_name": req.last_name,
         "role": req.role,

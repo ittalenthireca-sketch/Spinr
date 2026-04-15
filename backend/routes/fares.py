@@ -1,4 +1,11 @@
-from decimal import ROUND_HALF_UP, Decimal
+"""
+Fare-related HTTP routes.
+
+Business logic lives in `services/fare_service.py`. This file should remain
+thin: validate input, delegate, return.
+"""
+
+import logging
 
 from fastapi import APIRouter, Query
 
@@ -10,18 +17,7 @@ except ImportError:
     from geo_utils import get_service_area_polygon, point_in_polygon
 
 api_router = APIRouter(tags=["Fares"])
-
-# ── Decimal helpers (mirrored from rides.py — kept local to avoid circular import)
-_TWO_PLACES = Decimal("0.01")
-
-
-def _fd(v) -> float:
-    """Round a raw DB float to 2 decimal places via Decimal to avoid float drift."""
-    return float(Decimal(str(v)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP))
-
-
-def serialize_doc(doc):
-    return doc
+logger = logging.getLogger(__name__)
 
 
 @api_router.get("/vehicle-types")

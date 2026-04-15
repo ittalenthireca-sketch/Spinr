@@ -131,9 +131,15 @@ async def admin_delete_service_area(area_id: str):
 async def admin_update_surge_pricing(area_id: str, surge: Dict[str, Any]):
     """Update surge pricing for a service area."""
     surge_doc = {
+        "id": str(uuid.uuid4()),
         "service_area_id": area_id,
         "multiplier": surge.get("multiplier", 1.0),
+        "demand_count": 0,
+        "supply_count": 0,
+        "ratio": 0,
+        "source": "manual",
         "is_active": surge.get("is_active", False),
+        "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
     }
 
@@ -144,6 +150,19 @@ async def admin_update_surge_pricing(area_id: str, surge: Dict[str, Any]):
         await db_supabase.insert_one("surge_pricing", surge_doc)
 
     return {"message": "Surge pricing updated"}
+
+
+@router.get("/surge/status")
+async def admin_get_surge_status():
+    """Get current surge status for all active service areas."""
+    try:
+        from utils.surge_engine import get_surge_status
+
+        return await get_surge_status()
+    except ImportError:
+        from ...utils.surge_engine import get_surge_status
+
+        return await get_surge_status()
 
 
 # ---------- Area Management (Pricing, Tax, Vehicle Pricing) ----------

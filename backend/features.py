@@ -50,7 +50,8 @@ def point_in_polygon(lat: float, lng: float, polygon: List[Dict[str, float]]) ->
     for i in range(n):
         yi, xi = polygon[i].get("lat", 0), polygon[i].get("lng", 0)
         yj, xj = polygon[j].get("lat", 0), polygon[j].get("lng", 0)
-        if ((yi > lat) != (yj > lat)) and (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi):
+        # Guard: skip horizontal edges where yj == yi to avoid division by zero
+        if yi != yj and ((yi > lat) != (yj > lat)) and (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi):
             inside = not inside
         j = i
     return inside
@@ -388,6 +389,20 @@ async def admin_update_surge(area_id: str, req: UpdateSurgeRequest):
     if not area:
         raise HTTPException(status_code=404, detail="Service area not found")
     return area
+
+
+@admin_support_router.put("/service-areas/{area_id}/surge/auto")
+async def admin_reset_surge_to_auto(area_id: str):
+    """Reset surge pricing to automatic mode for a service area."""
+    area = await db.service_areas.find_one({"id": area_id})
+    if not area:
+        raise HTTPException(status_code=404, detail="Service area not found")
+    await db.service_areas.update_one(
+        {"id": area_id},
+        {"$set": {"surge_source": "auto", "surge_active": True}},
+    )
+    updated = await db.service_areas.find_one({"id": area_id})
+    return updated
 
 
 # ============ Admin: Area Fees (Pricing) ============
@@ -1001,8 +1016,58 @@ async def register_fcm_token(req: RegisterFcmTokenRequest, user_id: str = Query(
     return {"registered": True}
 
 
+def _is_expo_token(token: str) -> bool:
+    """Return True if the token is an Expo push token (not a native FCM token)."""
+    return token.startswith("ExponentPushToken[") or token.startswith("ExpoPushToken[")
+
+
+async def _send_expo_push(token: str, title: str, body: str, data: Dict[str, str] | None = None) -> bool:
+    """Send a push notification via Expo's push API (for Expo-managed tokens)."""
+    import httpx
+
+    payload = {
+        "to": token,
+        "title": title,
+        "body": body,
+        "data": data or {},
+        "sound": "default",
+        "priority": "high",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://exp.host/--/api/v2/push/send",
+                json=payload,
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+            )
+            result = resp.json()
+            status = result.get("data", {}).get("status") if isinstance(result.get("data"), dict) else None
+            if status == "ok":
+                logger.info(f"Expo push sent OK to {token[:35]}...")
+                return True
+            logger.warning(f"Expo push non-ok response: {result}")
+            return False
+    except Exception as e:
+        logger.error(f"Failed to send Expo push notification: {e}")
+        return False
+
+
 async def send_push_notification(user_id: str, title: str, body: str, data: Dict[str, str] | None = None):
-    """Send a push notification to a user via Firebase Cloud Messaging."""
+    """Send a push notification to a user.
+
+    Routes automatically: Expo push tokens go via Expo's REST API; all other
+    tokens are assumed to be FCM and sent via Firebase Admin SDK.
+    """
+    user = await db.users.find_one({"id": user_id})
+    if not user or not user.get("fcm_token"):
+        logger.info(f"No push token for user {user_id}")
+        return False
+
+    token: str = user["fcm_token"]
+
+    if _is_expo_token(token):
+        return await _send_expo_push(token, title, body, data)
+
     try:
         from firebase_admin import messaging
     except ImportError:
@@ -1018,7 +1083,7 @@ async def send_push_notification(user_id: str, title: str, body: str, data: Dict
         message = messaging.Message(
             notification=messaging.Notification(title=title, body=body),
             data=data or {},
-            token=user["fcm_token"],
+            token=token,
         )
         response = await asyncio.to_thread(messaging.send, message)
         logger.info(f"Push notification sent to {user_id}: {response}")

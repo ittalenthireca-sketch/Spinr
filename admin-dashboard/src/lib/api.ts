@@ -17,7 +17,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const url = `${API_BASE}${path}`;
     try {
         const res = await fetch(url, { ...options, headers });
-        console.log(`API Request: ${options.method || 'GET'} ${path} -> ${res.status}`);
+        if (process.env.NODE_ENV === "development") {
+            console.log(`API Request: ${options.method || 'GET'} ${path} -> ${res.status}`);
+        }
 
         if (res.status === 401) {
             // Clear auth state via Zustand
@@ -30,13 +32,26 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
         if (!res.ok) {
             const body = await res.json().catch(() => ({}));
-            console.error(`API Error: ${path}`, body);
-            throw new Error(body.detail || body.message || res.statusText);
+            if (process.env.NODE_ENV === "development") {
+                console.error(`API Error: ${path}`, body);
+            }
+            // Backend uses two error shapes:
+            //   • FastAPI HTTPException  → { detail: "..." }
+            //   • Custom error handler  → { error: { detail: "...", message: "..." } }
+            const msg =
+                body.detail ||
+                body.error?.detail ||
+                body.error?.message ||
+                body.message ||
+                res.statusText;
+            throw new Error(msg);
         }
 
         return res.json();
     } catch (err) {
-        console.error(`API Request Failed: ${url}`, err);
+        if (process.env.NODE_ENV === "development") {
+            console.error(`API Request Failed: ${url}`, err);
+        }
         throw err;
     }
 }
@@ -62,6 +77,9 @@ export interface AdminLoginResponse {
         id: string;
         email: string;
         role: string;
+        first_name?: string;
+        last_name?: string;
+        modules?: string[];
     };
 }
 
@@ -78,7 +96,7 @@ export const loginAdminSession = (email: string, password: string) =>
     });
 
 export const sendOtp = (phone: string) =>
-    request<{ success: boolean; dev_otp?: string }>("/api/auth/send-otp", {
+    request<{ success: boolean }>("/api/auth/send-otp", {
         method: "POST",
         body: JSON.stringify({ phone }),
     });
@@ -140,7 +158,9 @@ export const getRideRouteMapDataUrl = async (rideId: string): Promise<string | n
             reader.readAsDataURL(blob);
         });
     } catch (e) {
-        console.log("Failed to fetch ride route map:", e);
+        if (process.env.NODE_ENV === "development") {
+            console.log("Failed to fetch ride route map:", e);
+        }
         return null;
     }
 };
@@ -169,17 +189,11 @@ export const resolveLostItem = (itemId: string, data: { status: string; admin_no
         method: "PUT",
         body: JSON.stringify(data),
     });
-export const sendRideInvoice = async (rideId: string) => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const token = useAuthStore.getState().token;
-    const res = await fetch(`${API_BASE}/api/v1/rides/${rideId}/process-payment`, {
+export const sendRideInvoice = (rideId: string) =>
+    request<any>(`/api/v1/rides/${rideId}/process-payment`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ tip_amount: 0 }),
     });
-    if (!res.ok) throw new Error("Failed to send invoice");
-    return res.json();
-};
 export const getFlags = () => request<any[]>("/api/admin/flags");
 export const deactivateFlag = (flagId: string) =>
     request<any>(`/api/admin/flags/${flagId}/deactivate`, { method: "PUT" });
@@ -277,6 +291,12 @@ export const updateServiceArea = (id: string, data: any) =>
     });
 export const deleteServiceArea = (id: string) =>
     request<any>(`/api/admin/service-areas/${id}`, { method: "DELETE" });
+
+/* ── Surge Pricing ────────────────────────── */
+export const getSurgeStatus = () =>
+    request<any[]>("/api/admin/surge/status");
+export const resetSurgeToAuto = (id: string) =>
+    request<any>(`/api/v1/service-areas/${id}/surge/auto`, { method: "PUT" });
 
 /* ── Vehicle Types ────────────────────────── */
 export const getVehicleTypes = () =>
@@ -449,12 +469,6 @@ export const updateDispute = (id: string, data: any) =>
     request<any>(`/api/admin/disputes/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
-    });
-
-export const resolveDispute = (id: string, resolution: any) =>
-    request<any>(`/api/admin/disputes/${id}/resolve`, {
-        method: "PUT",
-        body: JSON.stringify(resolution),
     });
 
 /* ── Support Tickets ────────────────────────── */
@@ -662,3 +676,50 @@ export const getDriverSubscriptions = (status?: string) =>
 /* ── Audit Logs ──────────────────────────── */
 export const getAuditLogs = (limit = 50) =>
     request<any[]>(`/api/admin/audit-logs?limit=${limit}`);
+
+/* ── Quests / Bonus Challenges ──────────── */
+export const getQuests = (isActive?: boolean) =>
+    request<any[]>(`/api/v1/quests/admin/list${isActive !== undefined ? `?is_active=${isActive}` : ''}`);
+
+export const createQuest = (data: any) =>
+    request<any>("/api/v1/quests/admin/create", { method: "POST", body: JSON.stringify(data) });
+
+export const updateQuest = (id: string, data: any) =>
+    request<any>(`/api/v1/quests/admin/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const getQuestParticipants = (questId: string) =>
+    request<any[]>(`/api/v1/quests/admin/${questId}/participants`);
+
+/* ── Analytics ──────────────────────────── */
+export const getAnalyticsOverview = (dateRange = "30d") =>
+    request<any>(`/api/admin/analytics/overview?date_range=${dateRange}`);
+
+export const getCancellationBreakdown = (dateRange = "30d", serviceAreaId?: string) =>
+    request<any>(`/api/admin/analytics/cancellation-reasons?date_range=${dateRange}${serviceAreaId ? `&service_area_id=${serviceAreaId}` : ''}`);
+
+export const getDriverAcceptanceRates = (dateRange = "30d", serviceAreaId?: string) =>
+    request<any>(`/api/admin/analytics/driver-acceptance?date_range=${dateRange}${serviceAreaId ? `&service_area_id=${serviceAreaId}` : ''}`);
+
+export const getDemandForecast = (hoursAhead = 24, areaId?: string) =>
+    request<any>(`/api/admin/analytics/demand-forecast?hours_ahead=${hoursAhead}${areaId ? `&area_id=${areaId}` : ''}`);
+
+export const getDemandForecastSummary = (areaId?: string) =>
+    request<any>(`/api/admin/analytics/demand-forecast/summary${areaId ? `?area_id=${areaId}` : ''}`);
+
+export const getSurgeHistory = (areaId: string, hours = 24) =>
+    request<any>(`/api/admin/analytics/surge-history?area_id=${areaId}&hours=${hours}`);
+
+/* ── Payouts ────────────────────────────── */
+export const getPayouts = (status?: string) =>
+    request<any[]>(`/api/admin/payouts${status ? `?status=${status}` : ''}`);
+
+export const getPayoutStats = () =>
+    request<any>("/api/admin/payouts/stats");
+
+/* ── Disputes (resolve) ─────────────────── */
+export const resolveDispute = (id: string, data: { resolution: string; refund_amount?: number; admin_note?: string }) =>
+    request<any>(`/api/admin/disputes/${id}/resolve`, { method: "PUT", body: JSON.stringify(data) });
+
+/* ── Live Ride Monitoring ───────────────── */
+export const getActiveRides = () =>
+    request<any>("/api/admin/rides/active");

@@ -7,11 +7,13 @@ import api, { setInMemoryToken } from '../api/client';
 import { appCache, CACHE_KEYS, CACHE_CONFIG } from '../cache';
 
 // Platform-safe secure storage
+// Web uses sessionStorage (clears on tab close) instead of localStorage
+// to reduce token exposure in browser storage.
 const storage = {
   async getItem(key: string): Promise<string | null> {
     try {
       if (Platform.OS === 'web') {
-        return localStorage.getItem(key);
+        return sessionStorage.getItem(key);
       }
       return await SecureStore.getItemAsync(key);
     } catch (e) {
@@ -22,7 +24,7 @@ const storage = {
   async setItem(key: string, value: string): Promise<void> {
     try {
       if (Platform.OS === 'web') {
-        localStorage.setItem(key, value);
+        sessionStorage.setItem(key, value);
         return;
       }
       return await SecureStore.setItemAsync(key, value);
@@ -33,7 +35,7 @@ const storage = {
   async deleteItem(key: string): Promise<void> {
     try {
       if (Platform.OS === 'web') {
-        localStorage.removeItem(key);
+        sessionStorage.removeItem(key);
         return;
       }
       return await SecureStore.deleteItemAsync(key);
@@ -132,7 +134,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
   error: null,
 
   initialize: async () => {
-    console.log('Auth initializing...');
+    if (__DEV__) console.log('Auth initializing...');
     set({ isLoading: true });
 
     // Strategy:
@@ -143,7 +145,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
     //   perfectly valid backend JWT.
 
     const storedToken = await storage.getItem('auth_token');
-    console.log('[Auth] Stored token:', storedToken ? 'EXISTS' : 'NULL');
+    if (__DEV__) console.log('[Auth] Stored token:', storedToken ? 'EXISTS' : 'NULL');
 
     if (storedToken) {
       // ── Stored backend JWT path ──
@@ -153,7 +155,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
         });
         const userData = response.data as User;
 
-        console.log('[Auth] /auth/me →', {
+        if (__DEV__) console.log('[Auth] /auth/me →', {
           phone: userData?.phone,
           first_name: userData?.first_name,
           last_name: userData?.last_name,
@@ -182,7 +184,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
             driverData = driverRes.data as Driver;
             await appCache.set(CACHE_KEYS.DRIVER_PROFILE, driverData, CACHE_CONFIG.USER_PROFILE_TTL);
           } catch (e) {
-            console.log('Failed to fetch driver data on init');
+            if (__DEV__) console.log('Failed to fetch driver data on init');
           }
         }
 
@@ -196,7 +198,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
         });
         return; // Done — valid session restored
       } catch (error: any) {
-        console.log('[Auth] Stored token invalid or expired:', error.message);
+        if (__DEV__) console.log('[Auth] Stored token invalid or expired:', error.message);
         await storage.deleteItem('auth_token');
         // Fall through to no-session state below
       }
@@ -210,7 +212,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
       setTimeout(() => {
         const state = get();
         if (!state.isInitialized) {
-          console.log('[Auth] Firebase init timed out - forcing completion with no session');
+          if (__DEV__) console.log('[Auth] Firebase init timed out - forcing completion with no session');
           set({ user: null, driver: null, token: null, isInitialized: true, isLoading: false });
         }
       }, 4000);
@@ -221,7 +223,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
         if (firebaseUser) {
           try {
             const token = await firebaseUser.getIdToken();
-            console.log('[Auth] Got Firebase token');
+            if (__DEV__) console.log('[Auth] Got Firebase token');
 
             let userData: User | null = null;
             let driverData: Driver | null = null;
@@ -242,29 +244,29 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
                   driverData = driverRes.data as Driver;
                   await appCache.set(CACHE_KEYS.DRIVER_PROFILE, driverData, CACHE_CONFIG.USER_PROFILE_TTL);
                 } catch (e) {
-                  console.log('Failed to fetch driver data on init');
+                  if (__DEV__) console.log('Failed to fetch driver data on init');
                 }
               }
               set({ user: userData, driver: driverData, token, isInitialized: true, isLoading: false });
               await storage.setItem('auth_token', token);
             } catch (err) {
-              console.log('[Auth] Firebase user but backend fetch failed');
+              if (__DEV__) console.log('[Auth] Firebase user but backend fetch failed');
               set({ isLoading: false, isInitialized: true, error: 'Failed to sync user' });
             }
           } catch (error: any) {
-            console.log('[Auth] Failed to get Firebase token:', error);
+            if (__DEV__) console.log('[Auth] Failed to get Firebase token:', error);
             set({ isLoading: false, isInitialized: true, error: 'Failed to sync user' });
           }
         } else {
           // No Firebase user AND no stored token → truly logged out
-          console.log('[Auth] No Firebase user, no stored token → logged out');
+          if (__DEV__) console.log('[Auth] No Firebase user, no stored token → logged out');
           await appCache.clearUserCache();
           set({ user: null, driver: null, token: null, isInitialized: true, isLoading: false });
         }
       });
     } else {
       // Firebase not available at all
-      console.log('[Auth] No stored token, no Firebase → logged out');
+      if (__DEV__) console.log('[Auth] No stored token, no Firebase → logged out');
       set({ user: null, driver: null, token: null, isInitialized: true, isLoading: false });
     }
   },
@@ -278,7 +280,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
 
       // onAuthStateChanged will handle the rest
     } catch (error: any) {
-      console.log('Verify OTP Error:', error);
+      if (__DEV__) console.log('Verify OTP Error:', error);
       const message = error.message || 'Invalid verification code';
       set({ isLoading: false, error: message });
       throw new Error(message);
@@ -308,7 +310,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
       const response = await api.get('/drivers/me');
       set({ driver: response.data });
     } catch (error) {
-      console.log('Failed to fetch driver profile');
+      if (__DEV__) console.log('Failed to fetch driver profile');
       set({ driver: null });
     }
   },
@@ -338,11 +340,11 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
           const driverRes = await api.get('/drivers/me');
           set({ driver: driverRes.data as Driver });
         } catch (e) {
-          console.log('refreshProfile: driver fetch failed', e);
+          if (__DEV__) console.log('refreshProfile: driver fetch failed', e);
         }
       }
     } catch (e) {
-      console.log('refreshProfile: /auth/me failed', e);
+      if (__DEV__) console.log('refreshProfile: /auth/me failed', e);
     }
   },
 
@@ -388,7 +390,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
       await api.put(`/drivers/${driver.id}/status`, { is_online: isOnline });
       set({ driver: { ...driver, is_online: isOnline } });
     } catch (error: any) {
-      console.log('Failed to update status');
+      if (__DEV__) console.log('Failed to update status');
       throw error;
     }
   },
@@ -399,7 +401,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
         await signOut(auth);
       }
     } catch (error) {
-      console.log('Logout error:', error);
+      if (__DEV__) console.log('Logout error:', error);
     }
     setInMemoryToken(null);
     await storage.deleteItem('auth_token');

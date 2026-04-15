@@ -60,6 +60,60 @@ async def admin_get_rides(
     return {"rides": out, "total_count": total_count, "limit": limit, "offset": offset}
 
 
+# ---------- Active Rides (Live Monitoring) ----------
+
+
+@router.get("/rides/active")
+async def admin_get_active_rides():
+    """Get all active rides with driver locations for the live monitoring map."""
+    active_statuses = ["searching", "driver_assigned", "driver_accepted", "driver_arrived", "in_progress"]
+    try:
+        rides = await db.get_rows(
+            "rides",
+            {"status": {"$in": active_statuses}},
+            limit=200,
+            order_by="created_at",
+            order_desc=True,
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch active rides: {e}")
+        rides = []
+
+    rider_ids = list({r.get("rider_id") for r in rides if r.get("rider_id")})
+    driver_ids = list({r.get("driver_id") for r in rides if r.get("driver_id")})
+    drivers_map, users_map = await _batch_fetch_drivers_and_users(rider_ids, driver_ids)
+
+    result = []
+    for r in rides:
+        rider = users_map.get(r.get("rider_id"))
+        driver = drivers_map.get(r.get("driver_id"))
+        driver_user = users_map.get(driver.get("user_id")) if driver else None
+
+        result.append(
+            {
+                "id": r["id"],
+                "status": r.get("status"),
+                "pickup_address": r.get("pickup_address"),
+                "dropoff_address": r.get("dropoff_address"),
+                "pickup_lat": r.get("pickup_lat"),
+                "pickup_lng": r.get("pickup_lng"),
+                "dropoff_lat": r.get("dropoff_lat"),
+                "dropoff_lng": r.get("dropoff_lng"),
+                "total_fare": r.get("total_fare"),
+                "rider_name": _user_display_name(rider),
+                "driver_name": _user_display_name(driver_user)
+                if driver_user
+                else (driver.get("name") if driver else None),
+                "driver_lat": driver.get("lat") if driver else None,
+                "driver_lng": driver.get("lng") if driver else None,
+                "vehicle_type_id": r.get("vehicle_type_id"),
+                "created_at": r.get("created_at"),
+            }
+        )
+
+    return {"rides": result, "count": len(result)}
+
+
 # ---------- Stats ----------
 
 
@@ -76,7 +130,7 @@ async def admin_get_stats():
         {"status": "completed", "ride_completed_at": {"$gte": today_start}},
         limit=10000,
     )
-    revenue_today = sum(float(r.get("total_fare") or 0) for r in completed_today)
+    revenue_today = sum(float(r.get("total_fare") or 0) for r in (completed_today or []))
     month_start = (datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)).isoformat()
     completed_month = await db_supabase.get_rows(
         "rides",
@@ -86,10 +140,20 @@ async def admin_get_stats():
     revenue_month = sum(float(r.get("total_fare") or 0) for r in completed_month)
     pending_applications = await db_supabase.count_documents("drivers", {"is_verified": False})
     return {
-        "total_drivers": total_drivers,
-        "active_drivers": active_drivers,
+        # Fields the dashboard page expects
         "total_rides": total_rides,
-        "rides_today": rides_today,
+        "completed_rides": completed_rides,
+        "cancelled_rides": cancelled_rides,
+        "active_rides": active_rides,
+        "total_drivers": total_drivers,
+        "online_drivers": online_drivers,
+        "total_users": total_users,
+        "total_driver_earnings": total_driver_earnings,
+        "total_admin_earnings": total_admin_earnings,
+        "total_tips": total_tips,
+        # Legacy fields kept for other consumers
+        "active_drivers": online_drivers,
+        "rides_today": await db.rides.count_documents({"created_at": {"$gte": today_start}}),
         "revenue_today": revenue_today,
         "revenue_month": revenue_month,
         "pending_applications": pending_applications,
@@ -483,3 +547,56 @@ async def admin_export_drivers():
             }
         )
     return {"drivers": out, "count": len(out)}
+
+
+# ---------- Payouts ----------
+
+
+@router.get("/payouts")
+async def admin_get_payouts(
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Get all driver payouts with optional status filter."""
+    filters = {}
+    if status:
+        filters["status"] = status
+    try:
+        payouts = await db.get_rows("payouts", filters, order="created_at", desc=True, limit=limit, offset=offset)
+    except Exception as e:
+        logger.error(f"Failed to fetch payouts: {e}")
+        payouts = []
+
+    # Enrich with driver names
+    enriched = []
+    for p in payouts:
+        driver = await db.drivers.find_one({"id": p.get("driver_id")}) if p.get("driver_id") else None
+        driver_name = "Unknown"
+        if driver and driver.get("user_id"):
+            user = await db.users.find_one({"id": driver["user_id"]})
+            if user:
+                driver_name = _user_display_name(user)
+        enriched.append({**p, "driver_name": driver_name})
+    return enriched
+
+
+@router.get("/payouts/stats")
+async def admin_get_payout_stats():
+    """Get payout stats: total paid, pending, failed."""
+    try:
+        all_payouts = await db.get_rows("payouts", {}, limit=10000)
+    except Exception:
+        all_payouts = []
+
+    total_paid = sum(float(p.get("amount", 0)) for p in all_payouts if p.get("status") == "completed")
+    total_pending = sum(float(p.get("amount", 0)) for p in all_payouts if p.get("status") == "pending")
+    total_failed = sum(float(p.get("amount", 0)) for p in all_payouts if p.get("status") == "failed")
+
+    return {
+        "total_paid": round(total_paid, 2),
+        "total_pending": round(total_pending, 2),
+        "total_failed": round(total_failed, 2),
+        "payout_count": len(all_payouts),
+        "pending_count": sum(1 for p in all_payouts if p.get("status") == "pending"),
+    }
