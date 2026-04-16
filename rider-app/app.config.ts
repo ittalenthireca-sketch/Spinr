@@ -90,6 +90,26 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         '@react-native-firebase/messaging',
         '@react-native-firebase/crashlytics',
         '@react-native-firebase/app-check',
+        // Sentry sourcemap upload (Phase 2.2e / audit T1). The config
+        // plugin runs at EAS build time, uploads JS + Hermes bytecode
+        // sourcemaps to Sentry, and injects a debug-id into the bundle
+        // so Sentry can symbolicate stack frames against the right
+        // release. Requires three env vars in the EAS build machine:
+        //   SENTRY_ORG          — Sentry organisation slug
+        //   SENTRY_PROJECT      — Sentry project slug (rider-app)
+        //   SENTRY_AUTH_TOKEN   — CLI auth token with project:write
+        // All three are set via `eas secret:create` so the plugin
+        // no-ops locally and in Expo Go without any extra wiring.
+        [
+            '@sentry/react-native/expo',
+            {
+                organization: process.env.SENTRY_ORG,
+                project: process.env.SENTRY_PROJECT || 'spinr-rider',
+                // urlPrefix is Sentry's default for RN; pinned here so
+                // a future SDK change doesn't silently break frame paths.
+                url: 'https://sentry.io/',
+            },
+        ],
     ],
     experiments: {
         typedRoutes: false
@@ -100,6 +120,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         },
         EXPO_PUBLIC_BACKEND_URL: process.env.EXPO_PUBLIC_BACKEND_URL,
         backendUrl: process.env.EXPO_PUBLIC_BACKEND_URL,
-        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+        // Sentry (Phase 2.2c / audit T1). DSN is read by app/_layout.tsx
+        // via Constants.expoConfig.extra. Leave unset in dev — the
+        // shared helper no-ops when the DSN is blank.
+        EXPO_PUBLIC_SENTRY_DSN: process.env.EXPO_PUBLIC_SENTRY_DSN,
+        EXPO_PUBLIC_SENTRY_ENV: process.env.EXPO_PUBLIC_SENTRY_ENV,
+        EXPO_PUBLIC_SENTRY_RELEASE: process.env.EXPO_PUBLIC_SENTRY_RELEASE,
     }
 });

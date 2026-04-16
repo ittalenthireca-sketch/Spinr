@@ -94,7 +94,13 @@ export default function PaymentConfirmScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Confirm booking</Text>
@@ -321,6 +327,14 @@ export default function PaymentConfirmScreen() {
           onPress={handleBookRide}
           disabled={isLoading}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={
+            scheduledTime
+              ? `Schedule ${selectedVehicle?.name ?? 'ride'}`
+              : `Book ${selectedVehicle?.name ?? 'ride'} now`
+          }
+          accessibilityHint="Confirms the fare, payment method, and dispatches your ride"
+          accessibilityState={{ disabled: isLoading, busy: isLoading }}
         >
           {isLoading ? (
             <ActivityIndicator color="#FFFFFF" />

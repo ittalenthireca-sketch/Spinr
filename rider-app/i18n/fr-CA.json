@@ -1,0 +1,43 @@
+{
+    "common": {
+        "loading": "Chargement...",
+        "cancel": "Annuler",
+        "confirm": "Confirmer",
+        "back": "Retour",
+        "retry": "Réessayer",
+        "close": "Fermer",
+        "ok": "OK"
+    },
+    "home": {
+        "whereTo": "Où allez-vous ?",
+        "recentTrips": "Courses récentes",
+        "savedPlaces": "Lieux enregistrés",
+        "searchDestination": "Chercher une destination"
+    },
+    "rideOptions": {
+        "standard": "Standard",
+        "premium": "Premium",
+        "pool": "Partagée",
+        "surgeNotice": "Les tarifs sont plus élevés en raison de la forte demande.",
+        "estimatedArrival": "Arrivée est.",
+        "chooseRide": "Choisissez une course"
+    },
+    "payment": {
+        "addCard": "Ajouter une carte",
+        "paid": "Payé",
+        "failed": "Échec du paiement",
+        "paymentMethod": "Mode de paiement",
+        "cashOption": "Comptant"
+    },
+    "profile": {
+        "settings": "Paramètres",
+        "logout": "Déconnexion",
+        "language": "Langue",
+        "help": "Aide et soutien",
+        "rateApp": "Évaluer l'application"
+    },
+    "errors": {
+        "networkError": "Erreur de réseau. Veuillez vérifier votre connexion.",
+        "unknown": "Une erreur s'est produite. Veuillez réessayer."
+    }
+}

@@ -16,12 +16,12 @@ const nextConfig: NextConfig = {
 // local dev and CI runs that don't set SENTRY_DSN.
 export default process.env.NEXT_PUBLIC_SENTRY_DSN || process.env.SENTRY_DSN
   ? withSentryConfig(nextConfig, {
-      // Suppresses Sentry CLI output during builds.
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT ?? "spinr-admin-dashboard",
+      authToken: process.env.SENTRY_AUTH_TOKEN,
       silent: !process.env.CI,
-      // Automatically tree-shake Sentry debug code in production.
-      disableLogger: true,
-      // Upload source maps to Sentry for readable stack traces.
-      // Requires SENTRY_AUTH_TOKEN in CI env.
       widenClientFileUpload: true,
+      hideSourceMaps: true,
+      disableLogger: true,
     })
   : nextConfig;

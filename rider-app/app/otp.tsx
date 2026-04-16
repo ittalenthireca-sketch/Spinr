@@ -15,27 +15,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '@shared/store/authStore';
-import api, { setInMemoryToken } from '@shared/api/client';
+import api from '@shared/api/client';
 import CustomAlert from '@shared/components/CustomAlert';
-import Analytics from '@shared/analytics';
 import { useTheme } from '@shared/theme/ThemeContext';
 import type { ThemeColors } from '@shared/theme/index';
 
-// Platform-safe token storage
-const storage = {
-  async setItem(key: string, value: string) {
-    try {
-      if (Platform.OS === 'web') {
-        localStorage.setItem(key, value);
-      } else {
-        const SecureStore = require('expo-secure-store');
-        await SecureStore.setItemAsync(key, value);
-      }
-    } catch (e) {
-      console.log('[Auth] Storage setItem FAILED:', e);
-    }
-  },
-};
+// Token persistence (access token + refresh token + expiry) is handled
+// by useAuthStore.applyAuthResponse().  Do not re-implement the writes
+// here — it's how the refresh-token wiring stays consistent across
+// rider-app, driver-app, and frontend/.
 
 export default function OtpScreen() {
   const router = useRouter();
@@ -142,22 +130,13 @@ export default function OtpScreen() {
           phone: phoneNumber,
           code: code,
         });
-        const { token, user: userData } = response.data;
-        if (token) {
-          setInMemoryToken(token);
-          await storage.setItem('auth_token', token);
-          Analytics.otpVerified();
-          if (userData) {
-            useAuthStore.setState({
-              user: userData,
-              token: token,
-              isInitialized: true,
-              isLoading: false,
-            });
-            Analytics.login();
-          } else {
-            await initialize();
-          }
+        // applyAuthResponse persists the access token, refresh token,
+        // and expiry into SecureStore / zustand in one step.
+        await useAuthStore.getState().applyAuthResponse(response.data);
+        if (response.data?.user) {
+          useAuthStore.setState({ isInitialized: true, isLoading: false });
+        } else {
+          await initialize();
         }
       } else {
         await verifyOTP(verificationId!, code);
@@ -216,7 +195,14 @@ export default function OtpScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          accessibilityHint="Returns to the phone number entry screen"
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
           <Ionicons name="arrow-back" size={22} color={colors.text} />
         </TouchableOpacity>
 
@@ -247,6 +233,11 @@ export default function OtpScreen() {
             keyboardType="phone-pad"
             maxLength={codeLength}
             autoFocus
+            accessibilityLabel={`Verification code, ${codeLength} digits`}
+            accessibilityHint={`Enter the ${codeLength}-digit code we texted to ${phoneNumber}`}
+            autoComplete="sms-otp"
+            textContentType="oneTimeCode"
+            importantForAutofill="yes"
           />
 
           <TouchableOpacity
@@ -291,6 +282,12 @@ export default function OtpScreen() {
           onPress={handleVerify}
           disabled={verifying || code.length !== codeLength}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Verify code"
+          accessibilityState={{
+            disabled: verifying || code.length !== codeLength,
+            busy: verifying,
+          }}
         >
           {verifying ? (
             <ActivityIndicator color="#fff" size="small" />

@@ -6,7 +6,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import APIRouter, FastAPI
 
-from core.config import settings
 from core.lifespan import lifespan
 from core.middleware import init_middleware
 from core.security import init_firebase
@@ -34,6 +33,7 @@ from routes.wallet import api_router as wallet_router
 from routes.webhooks import api_router as webhooks_router
 from routes.websocket import router as websocket_router
 from utils.error_handling import register_exception_handlers
+from utils.metrics import install_fastapi_instrumentator
 
 # Initialize Firebase
 init_firebase()
@@ -42,6 +42,11 @@ app = FastAPI(title="Spinr API", version="1.0.0", lifespan=lifespan)
 
 # Initialize middleware
 init_middleware(app)
+
+# Prometheus /metrics (Phase 2.3 / audit T3). Installed before the
+# routers so its middleware wraps every request — including the ones
+# that were mounted by init_middleware just above.
+install_fastapi_instrumentator(app)
 
 # Register exception handlers so unhandled errors return JSON (with CORS
 # headers) instead of falling through to Starlette's ServerErrorMiddleware,
@@ -116,38 +121,25 @@ logger.add(
 # Add file logging for production
 logger.add("logs/app.log", rotation="500 MB", retention="7 days", level="INFO", serialize=True)
 
-# Configure Sentry for error monitoring — imports are deferred inside the DSN
-# guard so that sentry_sdk's starlette integration is never imported in
-# environments where SENTRY_DSN is unset (avoids DidNotEnable crash in CI).
-sentry_dsn = settings.sentry_dsn if hasattr(settings, "sentry_dsn") and settings.sentry_dsn else None
+# ────────────────────────────────────────────────────────────────────────
+# Sentry (Phase 2.2 / audit T1)
+#
+# Initialised here (before FastAPI routes attach) so the SDK can hook
+# into the ASGI stack via FastApiIntegration. The actual DSN-required
+# gate lives in core/middleware._validate_production_config so the error
+# message is grouped with the other prod-config checks. This block is
+# a no-op when the DSN is unset, which keeps dev/tests cheap and also
+# matches the legacy behaviour for deploys still in migration.
+#
+# Release tagging picks up FLY_IMAGE_REF ("registry.fly.io/spinr:deployment-…")
+# when present, otherwise falls back to APP_VERSION. That lets Sentry
+# associate issues with a specific Fly release for easy rollback
+# correlation, and avoids us having to thread SHAs through the build.
+# ────────────────────────────────────────────────────────────────────────
 
-if sentry_dsn:
-    import sentry_sdk  # noqa: E402
-    from sentry_sdk.integrations.fastapi import FastApiIntegration  # noqa: E402
-    from sentry_sdk.integrations.logging import LoggingIntegration  # noqa: E402
+from utils.sentry_init import init_sentry  # noqa: E402
 
-    _StarletteMiddleware = None
-    try:
-        from sentry_sdk.integrations.starlette import StarletteMiddleware as _StarletteMiddleware
-    except Exception as exc:  # noqa: BLE001
-        logger.debug(f"Sentry Starlette integration unavailable: {exc}")
-
-    integrations = [
-        FastApiIntegration(transaction_style="url"),
-        LoggingIntegration(event_level="ERROR", breadcrumb_level="WARNING"),
-    ]
-    if _StarletteMiddleware is not None:
-        integrations.append(_StarletteMiddleware())
-
-    sentry_sdk.init(
-        dsn=sentry_dsn,
-        integrations=integrations,
-        traces_sample_rate=0.1,
-        profiles_sample_rate=0.1,
-        environment=settings.ENV if hasattr(settings, "ENV") else "production",
-        send_default_pii=True,
-    )
-    logger.info("Sentry SDK initialized for error monitoring")
+init_sentry(role="api")
 
 if __name__ == "__main__":
     import uvicorn

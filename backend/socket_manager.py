@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional
 
 from fastapi import WebSocket
 from loguru import logger
@@ -9,18 +9,44 @@ try:
 except ImportError:
     from logging_utils import diag_logger  # type: ignore
 
+# Prometheus gauge for per-role connection counts (Phase 2.3c / audit T3).
+# Imported lazily so that socket_manager stays importable from Alembic's
+# env.py (which doesn't pull in the metrics package).
+try:
+    from utils.metrics import ws_connections as _ws_connections_gauge
+except Exception:  # pragma: no cover — metrics optional in non-API contexts
+    _ws_connections_gauge = None  # type: ignore[assignment]
+
 
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
         self.driver_locations: Dict[str, Dict] = {}
+        # client_id → role (rider | driver | admin) so disconnect can
+        # decrement the correct labelled gauge without re-parsing the
+        # connection_key format. Also future-proofs us against a key
+        # format change (e.g. dropping the `{role}_` prefix when we
+        # move to server-assigned session IDs).
+        self._roles: Dict[str, str] = {}
 
-    async def connect(self, websocket: WebSocket, client_id: str):
+    async def connect(self, websocket: WebSocket, client_id: str, role: Optional[str] = None):
         # WebSocket is already accepted in the endpoint handler
         self.active_connections[client_id] = websocket
+        # Fall back to parsing the connection_key prefix when the caller
+        # didn't supply a role — keeps the legacy signature working for
+        # any direct caller we might have missed.
+        if role is None and "_" in client_id:
+            role = client_id.split("_", 1)[0]
+        if role:
+            self._roles[client_id] = role
+            if _ws_connections_gauge is not None:
+                try:
+                    _ws_connections_gauge.labels(role=role).inc()
+                except Exception as e:  # pragma: no cover — metrics must never crash
+                    logger.debug(f"ws_connections gauge inc failed: {e}")
         logger.info(f"WebSocket connected: {client_id}")
         diag_logger.info(
-            f"[WS] CONNECT client_id={client_id} "
+            f"[WS] CONNECT client_id={client_id} role={role} "
             f"total_connections={len(self.active_connections)} "
             f"all_keys={list(self.active_connections.keys())}"
         )
@@ -28,9 +54,15 @@ class ConnectionManager:
     def disconnect(self, client_id: str):
         if client_id in self.active_connections:
             del self.active_connections[client_id]
+        role = self._roles.pop(client_id, None)
+        if role and _ws_connections_gauge is not None:
+            try:
+                _ws_connections_gauge.labels(role=role).dec()
+            except Exception as e:  # pragma: no cover
+                logger.debug(f"ws_connections gauge dec failed: {e}")
         logger.info(f"WebSocket disconnected: {client_id}")
         diag_logger.info(
-            f"[WS] DISCONNECT client_id={client_id} "
+            f"[WS] DISCONNECT client_id={client_id} role={role} "
             f"remaining={len(self.active_connections)} "
             f"all_keys={list(self.active_connections.keys())}"
         )

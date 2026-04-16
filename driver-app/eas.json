@@ -56,5 +56,13 @@
         "releaseStatus": "draft"
       }
     }
+  },
+  "update": {
+    "production": {
+      "channel": "production"
+    },
+    "preview": {
+      "channel": "preview"
+    }
   }
 }

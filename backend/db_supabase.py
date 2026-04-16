@@ -1,6 +1,6 @@
 import asyncio
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -1107,3 +1107,392 @@ async def mark_stripe_event_processed(event_id: str) -> None:
         await run_sync(_fn)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to stamp processed_at on stripe event {event_id}: {e}")
+
+
+async def fetch_unprocessed_stripe_events(limit: int = 10) -> list[Dict[str, Any]]:
+    """Return up to ``limit`` Stripe events ready to be (re-)dispatched.
+
+    "Ready" = ``processed_at IS NULL`` AND (``next_attempt_at IS NULL``
+    OR ``next_attempt_at <= now()``). The ordering is
+    ``received_at ASC`` so older events drain first — this preserves the
+    logical "accepted a payment then failed the follow-up" ordering
+    callers may depend on.
+
+    Fields returned: event_id, event_type, payload, attempt_count.
+
+    Used by ``utils.stripe_worker`` on the worker process. A NULL return
+    is the steady state when the queue is empty.
+    """
+    if not supabase:
+        return []
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    def _fn() -> list[Dict[str, Any]]:
+        # Two separate queries OR'd in the client: PostgREST has no first-
+        # class "col IS NULL OR col <= X" predicate, so we union the two
+        # partitions explicitly.  Bounded by ``limit`` on each side to
+        # cap total fan-in at 2*limit in the worst case; the worker
+        # further slices down after sort.
+        never_tried = (
+            supabase.table("stripe_events")
+            .select("event_id,event_type,payload,attempt_count,received_at")
+            .is_("processed_at", "null")
+            .is_("next_attempt_at", "null")
+            .order("received_at", desc=False)
+            .limit(limit)
+            .execute()
+        )
+        due_retry = (
+            supabase.table("stripe_events")
+            .select("event_id,event_type,payload,attempt_count,received_at")
+            .is_("processed_at", "null")
+            .lte("next_attempt_at", now_iso)
+            .order("received_at", desc=False)
+            .limit(limit)
+            .execute()
+        )
+        rows = list(never_tried.data or []) + list(due_retry.data or [])
+        # Dedup in case a row races between the two queries.
+        seen: set[str] = set()
+        deduped: list[Dict[str, Any]] = []
+        for r in rows:
+            eid = r.get("event_id")
+            if eid and eid not in seen:
+                seen.add(eid)
+                deduped.append(r)
+        deduped.sort(key=lambda r: r.get("received_at") or "")
+        return deduped[:limit]
+
+    try:
+        return await run_sync(_fn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"fetch_unprocessed_stripe_events failed: {e}")
+        return []
+
+
+async def mark_stripe_event_failed(event_id: str, error: str, attempt_count: int) -> None:
+    """Record a dispatch failure and schedule the next retry.
+
+    Exponential backoff: 30s, 1m, 2m, 4m, 8m, 16m, 32m, capped at 1h.
+    After ~10 attempts, ``next_attempt_at`` stays capped — operators
+    should inspect the row and either fix the root cause or manually
+    stamp ``processed_at`` to drop it off the queue.
+    """
+    if not supabase:
+        return
+
+    # Cap the backoff at 60 minutes so stuck events don't fall into a
+    # week-long retry hole — surface them in the next hour and operators
+    # can intervene if needed.
+    backoff_seconds = min(30 * (2 ** max(0, attempt_count)), 3600)
+    next_attempt = datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
+
+    def _fn():
+        supabase.table("stripe_events").update(
+            {
+                "attempt_count": attempt_count + 1,
+                "last_error": (error or "")[:2000],  # hard cap; avoid OOM on jumbo tracebacks
+                "next_attempt_at": next_attempt.isoformat(),
+            }
+        ).eq("event_id", event_id).execute()
+
+    try:
+        await run_sync(_fn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record stripe event failure for {event_id}: {e}")
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Background task heartbeats (Phase 1.6 / audit T15)
+#
+# Every background loop in the worker process calls
+# ``record_bg_task_heartbeat`` at the end of each iteration, success or
+# failure. ``/health/deep`` reads ``fetch_bg_task_heartbeats`` and
+# returns 503 if any row's ``last_run_at`` is older than
+# ``2 * expected_interval_seconds`` — catching the "worker alive but
+# a single loop wedged" failure mode that API-side DB probes miss.
+#
+# The helpers fail soft: if Supabase isn't configured, or a write
+# fails, we log and move on — a heartbeat write must never take a
+# loop down. The readiness probe treats "no heartbeat rows at all"
+# as healthy (the table might just be empty at fresh boot).
+# ────────────────────────────────────────────────────────────────────────
+
+
+async def record_bg_task_heartbeat(
+    task_name: str,
+    expected_interval_seconds: int,
+    status: str = "ok",
+    error: str | None = None,
+) -> None:
+    """Upsert a heartbeat for ``task_name``.
+
+    Called at the end of every background loop iteration. Never raises
+    — a failed heartbeat must not take the loop down (we'd rather the
+    loop keep running and the health check flag it stale than have the
+    whole worker crash because the heartbeat table is temporarily
+    unreachable).
+    """
+    if not supabase:
+        return
+
+    if status not in ("ok", "error"):
+        status = "error"
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    row = {
+        "task_name": task_name,
+        "last_run_at": now_iso,
+        "last_status": status,
+        "last_error": (error or "")[:2000] if error else None,
+        "expected_interval_seconds": int(expected_interval_seconds),
+        "updated_at": now_iso,
+    }
+
+    def _fn():
+        # on_conflict is required because task_name is the PK — without
+        # it PostgREST treats the row as a plain insert and 409s on the
+        # second heartbeat.
+        supabase.table("bg_task_heartbeat").upsert(
+            row, on_conflict="task_name"
+        ).execute()
+
+    try:
+        await run_sync(_fn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record bg_task_heartbeat for {task_name}: {e}")
+
+
+async def fetch_bg_task_heartbeats() -> list[Dict[str, Any]]:
+    """Return every heartbeat row.
+
+    Used by ``/health/deep`` — low cardinality (one row per background
+    task, maybe ~10 total) so we don't paginate. Returns ``[]`` on any
+    failure so the health endpoint can differentiate "no rows yet" vs
+    "DB unreachable" (the DB probe above will have already flagged the
+    DB unreachable case).
+    """
+    if not supabase:
+        return []
+
+    def _fn():
+        return supabase.table("bg_task_heartbeat").select(
+            "task_name,last_run_at,last_status,last_error,expected_interval_seconds"
+        ).execute()
+
+    try:
+        resp = await run_sync(_fn)
+        return list(resp.data or [])
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"fetch_bg_task_heartbeats failed: {e}")
+        return []
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Metrics helpers (Phase 2.3c / audit T3)
+#
+# Cheap aggregate queries feeding the Prometheus refresh loop in
+# ``utils.metrics.metrics_refresh_loop``. Pulled into db_supabase
+# instead of inlining into metrics.py so the SQL stays next to the
+# other supabase access helpers and the metrics module stays a pure
+# instrumentation surface.
+#
+# All helpers fail soft — a failed metric read must never bubble up
+# because the refresh loop is shared infra.
+# ────────────────────────────────────────────────────────────────────────
+
+
+async def count_unprocessed_stripe_events() -> int:
+    """Return the number of rows in ``stripe_events`` with ``processed_at IS NULL``.
+
+    Drives the ``spinr_stripe_queue_depth`` gauge. The queue is the
+    async buffer between Stripe's webhook POST and our business-logic
+    dispatcher; watching its depth is the single best signal for
+    "we're falling behind on payments" and is the basis for the SLO
+    alert in Phase 2.4.
+    """
+    if not supabase:
+        return 0
+
+    def _fn():
+        return (
+            supabase.table("stripe_events")
+            .select("event_id", count="exact")
+            .is_("processed_at", "null")
+            .limit(1)
+            .execute()
+        )
+
+    try:
+        resp = await run_sync(_fn)
+        return int(resp.count or 0)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"count_unprocessed_stripe_events failed: {e}")
+        return 0
+
+
+# Ride statuses we consider "active" for the active_rides gauge. Terminal
+# statuses (completed, cancelled, rejected) are deliberately excluded so
+# the gauge shows the dispatch-pipeline funnel rather than unbounded
+# historical counts.
+_ACTIVE_RIDE_STATUSES: tuple[str, ...] = (
+    "searching",
+    "driver_assigned",
+    "driver_accepted",
+    "driver_arrived",
+    "in_progress",
+    "pending_payment",
+)
+
+
+async def count_active_rides_by_status() -> Dict[str, int]:
+    """Return a ``{status: count}`` map for rides in non-terminal states.
+
+    Drives the ``spinr_active_rides`` gauge. One query per status is
+    simpler than a single GROUP BY (PostgREST doesn't natively support
+    GROUP BY) and keeps the per-query plan trivially indexed on
+    ``status``. Total fan-out: ~6 queries every metrics refresh
+    cycle, which at the 30s default cadence is negligible.
+    """
+    if not supabase:
+        return {}
+
+    out: Dict[str, int] = {}
+    for status in _ACTIVE_RIDE_STATUSES:
+
+        def _fn(_status: str = status):
+            return (
+                supabase.table("rides")
+                .select("id", count="exact")
+                .eq("status", _status)
+                .limit(1)
+                .execute()
+            )
+
+        try:
+            resp = await run_sync(_fn)
+            out[status] = int(resp.count or 0)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"count_active_rides_by_status({status}) failed: {e}")
+            out[status] = 0
+    return out
+
+
+# ── Ride request idempotency ──────────────────────────────────────────
+# Backed by alembic 0007_ride_idempotency. Mirrors the
+# claim_stripe_event pattern: an insert-or-reject atomic "claim" step
+# followed by a separate "record the response" step once the ride is
+# successfully created. The lookup is scoped by (key, rider_id) so one
+# rider's collision can never expose another rider's ride snapshot.
+
+async def claim_ride_idempotency_key(
+    key: str, rider_id: str
+) -> tuple[bool, Optional[Dict[str, Any]]]:
+    """Atomically claim an idempotency key for this rider.
+
+    Returns:
+        (is_new, cached_response)
+          * (True, None)  — we inserted a fresh claim row; caller should
+                            proceed to create the ride and then call
+                            ``record_ride_idempotency_response``.
+          * (False, dict) — this key was seen before and the prior
+                            response snapshot is cached; caller should
+                            return it verbatim as a 200.
+          * (False, None) — this key was seen before but the prior
+                            request hasn't finished yet (still in
+                            flight). Caller should return 409 so the
+                            client can retry after a short delay.
+    """
+    if not supabase:
+        # Without Supabase we can't dedupe; fall back to "fresh" and
+        # rely on the client not retrying against a no-op backend.
+        return (True, None)
+
+    def _insert() -> tuple[bool, Optional[Dict[str, Any]]]:
+        try:
+            supabase.table("ride_idempotency_keys").insert(
+                {"key": key, "rider_id": rider_id}
+            ).execute()
+            return (True, None)
+        except Exception as e:  # noqa: BLE001
+            msg = str(e).lower()
+            if _PG_UNIQUE_VIOLATION not in msg and "duplicate" not in msg:
+                raise
+            # Existing row: look it up and return the cached response.
+            resp = (
+                supabase.table("ride_idempotency_keys")
+                .select("response")
+                .eq("key", key)
+                .eq("rider_id", rider_id)
+                .limit(1)
+                .execute()
+            )
+            rows = resp.data or []
+            if not rows:
+                return (False, None)
+            cached = rows[0].get("response")
+            return (False, cached)
+
+    return await run_sync(_insert)
+
+
+async def record_ride_idempotency_response(
+    key: str, rider_id: str, ride_id: str, response: Dict[str, Any]
+) -> None:
+    """Stamp the ride_id + response snapshot onto a previously-claimed key.
+
+    Best-effort: a write failure here is non-fatal. Worst case a client
+    retry with the same key returns a 409 (in-flight) instead of the
+    cached response, and the retry will land as a duplicate ride — which
+    is the exact failure mode this table exists to prevent, but would
+    require both a Supabase write outage AND a client retry inside the
+    same ~seconds window. Log loudly so we can spot it.
+    """
+    if not supabase:
+        return
+
+    snapshot = _serialize_for_api(response)
+
+    def _fn():
+        supabase.table("ride_idempotency_keys").update(
+            {"ride_id": ride_id, "response": snapshot}
+        ).eq("key", key).eq("rider_id", rider_id).execute()
+
+    try:
+        await run_sync(_fn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"Failed to record idempotency response for key={key[:8]}…: {e}"
+        )
+
+
+async def delete_expired_ride_idempotency_keys(older_than_hours: int = 24) -> int:
+    """Delete idempotency-key rows older than ``older_than_hours``.
+
+    Called by the nightly retention sweep. Returns the count deleted.
+    The rows are harmless to keep but grow without bound if we never
+    prune them, and they hold no data of ongoing value after a day.
+    """
+    if not supabase:
+        return 0
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+
+    def _fn():
+        return (
+            supabase.table("ride_idempotency_keys")
+            .delete()
+            .lt("created_at", cutoff.isoformat())
+            .execute()
+        )
+
+    try:
+        resp = await run_sync(_fn)
+        deleted = len(resp.data or [])
+        if deleted:
+            logger.info(f"Retention: deleted {deleted} expired ride idempotency keys")
+        return deleted
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"delete_expired_ride_idempotency_keys failed: {e}")
+        return 0

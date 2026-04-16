@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+import * as Sentry from "@sentry/nextjs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertTriangle } from "lucide-react";
@@ -12,6 +14,18 @@ export default function Error({
     error: Error & { digest?: string };
     reset: () => void;
 }) {
+    // Phase 2.2f: forward the error to Sentry so any render-time crash
+    // that reaches this boundary shows up in the same issue stream as
+    // server-side and client-side exceptions. `digest` is the
+    // server-produced error ID Next.js attaches to RSC errors; logging
+    // it as tag makes it easy to cross-reference server logs with the
+    // Sentry issue.
+    useEffect(() => {
+        Sentry.captureException(error, {
+            tags: { boundary: "app_error", digest: error.digest ?? "none" },
+        });
+    }, [error]);
+
     return (
         <div className="min-h-screen flex items-center justify-center bg-background p-4">
             <Card className="max-w-md w-full">

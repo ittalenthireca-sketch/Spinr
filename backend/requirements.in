@@ -15,6 +15,18 @@ pydantic-settings>=2.5.0
 supabase>=2.10.0
 postgrest>=0.12.0
 realtime>=0.9.0
+# Schema migration tool. Legacy raw-SQL migrations under
+# backend/migrations/ remain the source of truth for the existing
+# schema; Alembic is the path for ALL new schema changes going
+# forward. See backend/alembic/README.md for the cutover story.
+alembic>=1.13.0
+# Raw Postgres driver used by alembic (online mode) and by
+# scripts/run_migrations.py. Binary wheel so we don't need libpq
+# headers in the CI image.
+psycopg[binary]>=3.1.0
+# SQLAlchemy is an alembic install-time dep; pin minimum explicitly
+# so pip-compile doesn't drift onto a 1.x release.
+SQLAlchemy>=2.0.0
 
 # Authentication
 firebase-admin>=6.0.0
@@ -67,6 +79,8 @@ boto3>=1.34.0
 
 # Error monitoring
 sentry-sdk>=1.40.0,<2.59.0
+prometheus-fastapi-instrumentator>=7.0.0,<8.0.0
+prometheus-client>=0.20.0,<1.0.0
 
 # Testing
 pytest>=8.0.0

@@ -14,6 +14,14 @@ class SendOTPRequest(BaseModel):
 class VerifyOTPRequest(BaseModel):
     phone: str
     code: str
+    # ToS / Privacy acceptance — required for new users (audit C3).
+    # Existing users (is_new_user=False) do not need to re-send these
+    # unless a re-prompt is triggered by a policy version bump.
+    # Mobile clients older than the version that added these fields
+    # will send None; the signup path treats that as missing consent
+    # and returns 422 for new users.
+    accepted_tos_version: Optional[str] = None
+    accepted_privacy_at: Optional[datetime] = None
 
 
 class CreateProfileRequest(BaseModel):
@@ -45,6 +53,10 @@ class UserProfile(BaseModel):
     driver_onboarding_status: Optional[str] = None
     driver_onboarding_detail: Optional[str] = None  # human-readable explanation
     driver_onboarding_next_screen: Optional[str] = None  # route hint for the app
+    # ToS / Privacy acceptance audit trail (audit C3 / migration 0006).
+    accepted_tos_version: Optional[str] = None
+    accepted_tos_at: Optional[datetime] = None
+    accepted_privacy_at: Optional[datetime] = None
 
 
 class OTPRecord(BaseModel):

@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
 import sys
 from pathlib import Path
 from typing import List, Tuple
@@ -69,14 +68,28 @@ def _connect():
     installed. The caller gets a connection with autocommit OFF so each
     migration runs in its own transaction.
     """
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        print(
-            "ERROR: DATABASE_URL is not set. Export the Postgres URL "
-            "(e.g. the Supabase pooler URL with the service role password) "
-            "before running migrations.",
-            file=sys.stderr,
+    # Route through the shared validator so a DATABASE_URL pointed at
+    # the non-pooled direct cluster endpoint is rejected (unless the
+    # operator explicitly opts in with SPINR_ALLOW_DIRECT_DATABASE_URL).
+    # See backend/scripts/db_url.py for the full rationale.
+    try:
+        from backend.scripts.db_url import (
+            DatabaseUrlValidationError,
+            resolve_and_validate_database_url,
         )
+    except ImportError:  # pragma: no cover — when run as a loose script
+        from db_url import (  # type: ignore[no-redef]
+            DatabaseUrlValidationError,
+            resolve_and_validate_database_url,
+        )
+
+    try:
+        url = resolve_and_validate_database_url()
+    except DatabaseUrlValidationError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(2)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(2)
 
     try:

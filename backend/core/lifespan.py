@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,12 +6,49 @@ from loguru import logger
 
 try:
     from core.config import settings
+    from core.logging_config import configure_logging
     from db_supabase import run_sync
 except ImportError:  # pragma: no cover - import style varies by entrypoint
     from ..core.config import settings  # type: ignore
+    from ..core.logging_config import configure_logging  # type: ignore
     from ..db_supabase import run_sync  # type: ignore
 
+# Configure structured logging before any other code emits a log line.
+configure_logging()
+
 from supabase_client import supabase
+
+
+def _should_run_background_tasks() -> bool:
+    """Decide whether this API process should own the background loops.
+
+    We key off Fly's FLY_PROCESS_GROUP env var (automatically injected
+    on Fly machines per the [processes] block in fly.toml):
+
+      * FLY_PROCESS_GROUP=app     → a dedicated worker machine owns
+                                    the loops; skip here to avoid
+                                    double-execution.
+      * FLY_PROCESS_GROUP=worker  → the worker entrypoint owns the
+                                    loops; skip here too (and this
+                                    branch shouldn't be hit — the
+                                    worker doesn't mount FastAPI).
+      * unset / anything else     → legacy single-process mode (local
+                                    dev, single-service Render, etc.).
+                                    Run the loops in-process for
+                                    backwards compat.
+
+    SPINR_BG_TASKS=force can be set to override and always run
+    (useful for ad-hoc scripts); SPINR_BG_TASKS=off to force-skip.
+    """
+    override = os.environ.get("SPINR_BG_TASKS", "").strip().lower()
+    if override == "force":
+        return True
+    if override == "off":
+        return False
+    role = os.environ.get("FLY_PROCESS_GROUP", "").strip().lower()
+    if role in ("app", "worker"):
+        return False
+    return True
 
 
 # Global database reference accessible via app state
@@ -81,48 +119,84 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Failed to start background task {name}: {e}")
 
-    # G5: Subscription expiry warning — checks every 6h for subscriptions
-    # expiring within 24h and sends push notifications.
+    # Background loops run either here (legacy single-process mode) or
+    # in the dedicated worker process (when FLY_PROCESS_GROUP is set).
+    # See backend/worker.py and fly.toml [processes].
+    if _should_run_background_tasks():
+        # G5: Subscription expiry warning — checks every 6h for subscriptions
+        # expiring within 24h and sends push notifications.
+        try:
+            from routes.drivers import check_expiring_subscriptions
+
+            _spawn("subscription_expiry (6h)", check_expiring_subscriptions)
+        except Exception as e:
+            logger.warning(f"Failed to import subscription expiry checker: {e}")
+
+        # Automated surge pricing — recalculates demand/supply ratio every 2 min
+        # and updates service_areas.surge_multiplier for auto-managed areas.
+        try:
+            from utils.surge_engine import surge_recalculation_loop
+
+            _spawn("surge_engine (2min)", surge_recalculation_loop)
+        except Exception as e:
+            logger.warning(f"Failed to import surge pricing engine: {e}")
+
+        # Scheduled ride dispatcher — checks every 60s for rides due for dispatch
+        # and sends 10-minute reminder notifications.
+        try:
+            from utils.scheduled_rides import scheduled_ride_dispatcher_loop
+
+            _spawn("scheduled_dispatcher (60s)", scheduled_ride_dispatcher_loop)
+        except Exception as e:
+            logger.warning(f"Failed to import scheduled ride dispatcher: {e}")
+
+        # Payment retry — retries failed Stripe payments every 5 minutes
+        try:
+            from utils.payment_retry import payment_retry_loop
+
+            _spawn("payment_retry (5min)", payment_retry_loop)
+        except Exception as e:
+            logger.warning(f"Failed to import payment retry service: {e}")
+
+        # Document expiry alerts — notifies drivers about expiring docs every 12h
+        try:
+            from utils.document_expiry import document_expiry_loop
+
+            _spawn("document_expiry (12h)", document_expiry_loop)
+        except Exception as e:
+            logger.warning(f"Failed to import document expiry checker: {e}")
+
+        # Stripe event queue drainer (Phase 1.5) — the webhook handler
+        # only persists events and returns 200; this loop runs the
+        # business-logic dispatch out-of-band. Registered here for
+        # legacy single-process deploys; on Fly the dedicated worker
+        # process runs it instead (see worker.py).
+        try:
+            from utils.stripe_worker import stripe_event_worker_loop
+
+            _spawn("stripe_event_worker (5s)", stripe_event_worker_loop)
+        except Exception as e:
+            logger.warning(f"Failed to import stripe event worker: {e}")
+    else:
+        role = os.environ.get("FLY_PROCESS_GROUP", "unknown")
+        logger.info(
+            f"Skipping in-process background tasks (FLY_PROCESS_GROUP={role}); "
+            f"they are owned by the dedicated worker process."
+        )
+
+    # Phase 2.3c — metrics refresh always runs on the API process,
+    # regardless of role. The /metrics endpoint served by this process
+    # needs fresh snapshot gauges (stripe_queue_depth, active_rides,
+    # bg_task_heartbeat_age_seconds) even when the business-logic
+    # background loops live on the dedicated worker. The DB reads it
+    # performs are cheap (6 COUNT queries + one SELECT) and the worker
+    # runs its own copy of the same loop — both are idempotent.
     try:
-        from routes.drivers import check_expiring_subscriptions
+        from utils.metrics import metrics_refresh_loop
 
-        _spawn("subscription_expiry (6h)", check_expiring_subscriptions)
+        _spawn("metrics_refresh (30s)", metrics_refresh_loop)
     except Exception as e:
-        logger.warning(f"Failed to import subscription expiry checker: {e}")
-
-    # Automated surge pricing — recalculates demand/supply ratio every 2 min
-    # and updates service_areas.surge_multiplier for auto-managed areas.
-    try:
-        from utils.surge_engine import surge_recalculation_loop
-
-        _spawn("surge_engine (2min)", surge_recalculation_loop)
-    except Exception as e:
-        logger.warning(f"Failed to import surge pricing engine: {e}")
-
-    # Scheduled ride dispatcher — checks every 60s for rides due for dispatch
-    # and sends 10-minute reminder notifications.
-    try:
-        from utils.scheduled_rides import scheduled_ride_dispatcher_loop
-
-        _spawn("scheduled_dispatcher (60s)", scheduled_ride_dispatcher_loop)
-    except Exception as e:
-        logger.warning(f"Failed to import scheduled ride dispatcher: {e}")
-
-    # Payment retry — retries failed Stripe payments every 5 minutes
-    try:
-        from utils.payment_retry import payment_retry_loop
-
-        _spawn("payment_retry (5min)", payment_retry_loop)
-    except Exception as e:
-        logger.warning(f"Failed to import payment retry service: {e}")
-
-    # Document expiry alerts — notifies drivers about expiring docs every 12h
-    try:
-        from utils.document_expiry import document_expiry_loop
-
-        _spawn("document_expiry (12h)", document_expiry_loop)
-    except Exception as e:
-        logger.warning(f"Failed to import document expiry checker: {e}")
+        logger.warning(f"Failed to import metrics refresh loop: {e}")
 
     app.state.background_tasks = background_tasks
 

@@ -101,11 +101,39 @@ export interface User {
   driver_onboarding_next_screen?: string | null;
 }
 
+// Shape returned by POST /auth/verify-otp and POST /auth/refresh
+// (see backend/schemas.AuthResponse). The clients only care about the
+// subset below — future fields may be added server-side without needing
+// a client release.
+export interface AuthResponsePayload {
+  token: string;
+  refresh_token?: string | null;
+  access_expires_at?: string | null;   // ISO-8601
+  refresh_expires_at?: string | null;  // ISO-8601
+  user?: User;
+}
+
+// Storage keys kept together so the two consumers (this store and the
+// api client's on-401 refresh path) cannot drift.
+export const AUTH_STORAGE_KEYS = {
+  ACCESS_TOKEN: 'auth_token',
+  REFRESH_TOKEN: 'auth_refresh_token',
+  ACCESS_EXPIRES_AT: 'auth_access_expires_at',
+} as const;
+
 interface AuthState {
   user: User | null;
   driver: Driver | null;
   isDriverMode: boolean;
   token: string | null;
+  // Opaque refresh token from POST /auth/verify-otp.  Rotating: every
+  // POST /auth/refresh returns a new one and revokes this one.  Stored
+  // in SecureStore (native) / sessionStorage (web) alongside `token`.
+  refreshToken: string | null;
+  // ISO timestamp of when `token` expires.  Clients can proactively
+  // refresh before this passes; otherwise the on-401 path in
+  // shared/api/client.ts catches it reactively.
+  accessExpiresAt: string | null;
   isLoading: boolean;
   isInitialized: boolean;
   error: string | null;
@@ -113,6 +141,16 @@ interface AuthState {
   // Actions
   initialize: () => Promise<void>;
   verifyOTP: (verificationId: string, code: string) => Promise<void>;
+  // Persist an AuthResponse (login or refresh) into both zustand state
+  // and secure storage.  Used by the OTP screens after POST /auth/verify-otp
+  // and by refreshAccessToken() after POST /auth/refresh.
+  applyAuthResponse: (payload: AuthResponsePayload) => Promise<void>;
+  // Trade the stored refresh token for a fresh access token.  Returns
+  // the new access token on success, or null on failure (caller should
+  // treat null as "session is gone; redirect to login").  Single-flight
+  // guarded inside the api client — not inside this store — to keep the
+  // store synchronous in its intent.
+  refreshAccessToken: () => Promise<string | null>;
   createProfile: (data: { first_name: string; last_name: string; email: string; gender: string; city?: string; service_area_id?: string }) => Promise<void>;
   fetchDriverProfile: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -129,9 +167,72 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
   driver: null,
   isDriverMode: false,
   token: null,
+  refreshToken: null,
+  accessExpiresAt: null,
   isLoading: false,
   isInitialized: false,
   error: null,
+
+  applyAuthResponse: async (payload: AuthResponsePayload) => {
+    // Persist access token (existing key, for backwards compat with any
+    // code path that still reads 'auth_token' directly).
+    await storage.setItem(AUTH_STORAGE_KEYS.ACCESS_TOKEN, payload.token);
+    setInMemoryToken(payload.token);
+
+    // Refresh token + expiry are optional — the admin audience, older
+    // backends, and unit tests may send just `{token,user}`.  Write only
+    // when present; delete the persisted copy otherwise so a stale
+    // refresh token from a previous session can't sneak back into use.
+    if (payload.refresh_token) {
+      await storage.setItem(AUTH_STORAGE_KEYS.REFRESH_TOKEN, payload.refresh_token);
+    } else {
+      await storage.deleteItem(AUTH_STORAGE_KEYS.REFRESH_TOKEN);
+    }
+    if (payload.access_expires_at) {
+      await storage.setItem(AUTH_STORAGE_KEYS.ACCESS_EXPIRES_AT, payload.access_expires_at);
+    } else {
+      await storage.deleteItem(AUTH_STORAGE_KEYS.ACCESS_EXPIRES_AT);
+    }
+
+    set({
+      token: payload.token,
+      refreshToken: payload.refresh_token ?? null,
+      accessExpiresAt: payload.access_expires_at ?? null,
+      ...(payload.user ? { user: payload.user } : {}),
+    });
+  },
+
+  refreshAccessToken: async () => {
+    const currentRefresh = get().refreshToken ?? (await storage.getItem(AUTH_STORAGE_KEYS.REFRESH_TOKEN));
+    if (!currentRefresh) {
+      if (__DEV__) console.log('[Auth] refreshAccessToken: no refresh token on hand');
+      return null;
+    }
+
+    try {
+      // Deliberately use fetch directly instead of the shared api client
+      // here: the api client wires up on-401 → refreshAccessToken(), so
+      // calling api.post('/auth/refresh') from inside this function would
+      // be a bootstrap loop the moment the refresh token itself is bad.
+      const API_URL = require('../config/spinr.config').default.backendUrl;
+      const response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: currentRefresh }),
+      });
+
+      if (!response.ok) {
+        if (__DEV__) console.log(`[Auth] refreshAccessToken: /auth/refresh returned ${response.status}`);
+        return null;
+      }
+      const data: AuthResponsePayload = await response.json();
+      await get().applyAuthResponse(data);
+      return data.token;
+    } catch (e) {
+      if (__DEV__) console.log('[Auth] refreshAccessToken network error:', e);
+      return null;
+    }
+  },
 
   initialize: async () => {
     if (__DEV__) console.log('Auth initializing...');
@@ -144,7 +245,13 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
     //   when no Firebase phone-auth session exists) from deleting a
     //   perfectly valid backend JWT.
 
-    const storedToken = await storage.getItem('auth_token');
+    const storedToken = await storage.getItem(AUTH_STORAGE_KEYS.ACCESS_TOKEN);
+    const storedRefresh = await storage.getItem(AUTH_STORAGE_KEYS.REFRESH_TOKEN);
+    const storedAccessExp = await storage.getItem(AUTH_STORAGE_KEYS.ACCESS_EXPIRES_AT);
+    // Hydrate the refresh metadata into state up-front so api.client's
+    // on-401 refresh path has it available even before /auth/me returns.
+    if (storedRefresh) set({ refreshToken: storedRefresh });
+    if (storedAccessExp) set({ accessExpiresAt: storedAccessExp });
     if (__DEV__) console.log('[Auth] Stored token:', storedToken ? 'EXISTS' : 'NULL');
 
     if (storedToken) {
@@ -198,8 +305,48 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
         });
         return; // Done — valid session restored
       } catch (error: any) {
-        if (__DEV__) console.log('[Auth] Stored token invalid or expired:', error.message);
-        await storage.deleteItem('auth_token');
+        if (__DEV__) console.log('[Auth] Stored access token rejected:', error.message);
+        // Reactive refresh: if we have a refresh token, trade it for a
+        // fresh access token and re-run /auth/me once.  This is what
+        // lets riders stay signed in past the access-token TTL without
+        // re-doing OTP.  If refresh fails too, fall through to the
+        // logged-out branch.
+        const refreshed = await get().refreshAccessToken();
+        if (refreshed) {
+          try {
+            const meRes = await api.get('/auth/me', {
+              headers: { Authorization: `Bearer ${refreshed}` }
+            });
+            const userData = meRes.data as User;
+            await appCache.set(CACHE_KEYS.USER_PROFILE, userData, CACHE_CONFIG.USER_PROFILE_TTL);
+
+            let driverData: Driver | null = null;
+            const looksLikeDriver =
+              !!(userData as any).is_driver ||
+              (userData as any).role === 'driver' ||
+              !!(userData as any).driver_onboarding_status;
+            if (looksLikeDriver) {
+              try {
+                const driverRes = await api.get('/drivers/me', {
+                  headers: { Authorization: `Bearer ${refreshed}` }
+                });
+                driverData = driverRes.data as Driver;
+                await appCache.set(CACHE_KEYS.DRIVER_PROFILE, driverData, CACHE_CONFIG.USER_PROFILE_TTL);
+              } catch {
+                if (__DEV__) console.log('Failed to fetch driver data after refresh');
+              }
+            }
+            set({ user: userData, driver: driverData, isInitialized: true, isLoading: false });
+            return; // Session restored via refresh
+          } catch (e) {
+            if (__DEV__) console.log('[Auth] /auth/me still failing after refresh:', e);
+          }
+        }
+        // Refresh unavailable or failed — clear everything.
+        await storage.deleteItem(AUTH_STORAGE_KEYS.ACCESS_TOKEN);
+        await storage.deleteItem(AUTH_STORAGE_KEYS.REFRESH_TOKEN);
+        await storage.deleteItem(AUTH_STORAGE_KEYS.ACCESS_EXPIRES_AT);
+        set({ refreshToken: null, accessExpiresAt: null });
         // Fall through to no-session state below
       }
     }
@@ -248,7 +395,10 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
                 }
               }
               set({ user: userData, driver: driverData, token, isInitialized: true, isLoading: false });
-              await storage.setItem('auth_token', token);
+              // Firebase path doesn't produce a refresh_token (the
+              // Firebase ID token auto-refreshes via the SDK itself),
+              // so we only persist the access token here.
+              await storage.setItem(AUTH_STORAGE_KEYS.ACCESS_TOKEN, token);
             } catch (err) {
               if (__DEV__) console.log('[Auth] Firebase user but backend fetch failed');
               set({ isLoading: false, isInitialized: true, error: 'Failed to sync user' });
@@ -396,6 +546,26 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
   },
 
   logout: async () => {
+    // Server-side revocation: stamp `revoked_at` on the current refresh
+    // token so a leaked copy of it can't be used after logout.  Best-
+    // effort — if the network is offline we still proceed with the local
+    // wipe below.  The access token is left to expire naturally (the
+    // token_version bump path is reserved for /auth/logout-all on
+    // password-change / ban, not routine sign-out).
+    const currentRefresh = get().refreshToken;
+    if (currentRefresh) {
+      try {
+        const API_URL = require('../config/spinr.config').default.backendUrl;
+        await fetch(`${API_URL}/api/v1/auth/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: currentRefresh }),
+        });
+      } catch (e) {
+        if (__DEV__) console.log('[Auth] /auth/logout failed (best-effort):', e);
+      }
+    }
+
     try {
       if (typeof auth.onAuthStateChanged === 'function') {
         await signOut(auth);
@@ -404,10 +574,19 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
       if (__DEV__) console.log('Logout error:', error);
     }
     setInMemoryToken(null);
-    await storage.deleteItem('auth_token');
+    await storage.deleteItem(AUTH_STORAGE_KEYS.ACCESS_TOKEN);
+    await storage.deleteItem(AUTH_STORAGE_KEYS.REFRESH_TOKEN);
+    await storage.deleteItem(AUTH_STORAGE_KEYS.ACCESS_EXPIRES_AT);
     // Clear user cache on logout
     await appCache.clearUserCache();
-    set({ user: null, driver: null, token: null, isDriverMode: false });
+    set({
+      user: null,
+      driver: null,
+      token: null,
+      refreshToken: null,
+      accessExpiresAt: null,
+      isDriverMode: false,
+    });
   },
 
   updateProfileImage: async (imageUri: string) => {

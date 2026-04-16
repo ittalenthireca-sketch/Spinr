@@ -300,7 +300,42 @@ export const useRideStore = create<RideState>((set, get) => ({
         rideData.scheduled_time = scheduledTime.toISOString();
       }
 
-      const response = await api.post('/rides', rideData);
+      // Idempotency key (Phase 4.4 / F2): one UUID per *attempt*, reused
+      // across network retries so a timeout-then-retry doesn't create a
+      // duplicate ride. We mint via crypto.randomUUID when available and
+      // fall back to a Math.random composite for older RN runtimes
+      // without it.
+      const idempotencyKey =
+        (globalThis as any)?.crypto?.randomUUID?.() ??
+        `r-${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${Math.random()
+          .toString(36)
+          .slice(2, 10)}`;
+
+      // Retry on network-level failure (no HTTP response received) only.
+      // We must NOT retry on 4xx/5xx — those reached the backend and
+      // the idempotency-key dedupe will handle any real retries via the
+      // cached response path on the server.
+      const MAX_ATTEMPTS = 3;
+      let lastError: any = null;
+      let response: any = null;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          response = await api.post('/rides', rideData, {
+            headers: { 'Idempotency-Key': idempotencyKey },
+          });
+          break;
+        } catch (err: any) {
+          lastError = err;
+          const isNetworkError = !err?.response;
+          if (!isNetworkError || attempt === MAX_ATTEMPTS) {
+            throw err;
+          }
+          // Exponential backoff: 500ms, 1500ms.
+          await new Promise((resolve) => setTimeout(resolve, 500 * Math.pow(3, attempt - 1)));
+        }
+      }
+      if (!response) throw lastError ?? new Error('createRide: no response');
+
       set({ currentRide: response.data, isLoading: false, scheduledTime: null });
       _persistRide(response.data, null);
       return response.data;

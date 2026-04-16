@@ -144,12 +144,32 @@ async def check_scheduled_rides():
             await _dispatch_scheduled_ride(ride)
 
 
+SCHEDULED_DISPATCHER_INTERVAL_SECONDS = 60
+
+
 async def scheduled_ride_dispatcher_loop():
     """Background loop that checks scheduled rides every 60 seconds."""
+    try:
+        from db_supabase import record_bg_task_heartbeat
+    except ImportError:
+        from ..db_supabase import record_bg_task_heartbeat  # type: ignore[no-redef]
+
     logger.info("Scheduled ride dispatcher started")
     while True:
+        status = "ok"
+        err: str | None = None
         try:
             await check_scheduled_rides()
         except Exception as e:
             logger.error(f"Scheduled ride dispatcher error: {e}")
-        await asyncio.sleep(60)
+            status = "error"
+            err = str(e)
+
+        # Heartbeat (Phase 1.6 / T15)
+        await record_bg_task_heartbeat(
+            "scheduled_dispatcher",
+            SCHEDULED_DISPATCHER_INTERVAL_SECONDS,
+            status=status,
+            error=err,
+        )
+        await asyncio.sleep(SCHEDULED_DISPATCHER_INTERVAL_SECONDS)

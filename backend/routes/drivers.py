@@ -2540,6 +2540,9 @@ async def cancel_subscription(current_user: dict = Depends(get_current_user)):
 # ── G5: Subscription expiry warning background task ──────────────
 
 
+SUBSCRIPTION_EXPIRY_INTERVAL_SECONDS = 6 * 3600
+
+
 async def check_expiring_subscriptions():
     """Background task: sends push notifications to drivers whose
     Spinr Pass expires within 24 hours.
@@ -2548,7 +2551,14 @@ async def check_expiring_subscriptions():
     Marks warned subscriptions with `expiry_warned: true` so the
     driver isn't notified more than once.
     """
+    try:
+        from db_supabase import record_bg_task_heartbeat
+    except ImportError:
+        from ..db_supabase import record_bg_task_heartbeat  # type: ignore[no-redef]
+
     while True:
+        _hb_status = "ok"
+        _hb_err: str | None = None
         try:
             now = datetime.utcnow()
             window = now + timedelta(hours=24)
@@ -2597,5 +2607,14 @@ async def check_expiring_subscriptions():
 
         except Exception as e:
             logger.warning(f"[SUB-EXPIRY] Background check error: {e}")
+            _hb_status = "error"
+            _hb_err = str(e)
 
-        await asyncio.sleep(6 * 3600)
+        # Heartbeat (Phase 1.6 / T15)
+        await record_bg_task_heartbeat(
+            "subscription_expiry",
+            SUBSCRIPTION_EXPIRY_INTERVAL_SECONDS,
+            status=_hb_status,
+            error=_hb_err,
+        )
+        await asyncio.sleep(SUBSCRIPTION_EXPIRY_INTERVAL_SECONDS)

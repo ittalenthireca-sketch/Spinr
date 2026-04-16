@@ -91,8 +91,31 @@ class Settings(BaseSettings):
     # Environment
     ENV: str = "development"
 
+    # Logging — optional override. configure_logging() picks a sensible
+    # default per-ENV (DEBUG for dev/staging, INFO for production).
+    # Set LOG_LEVEL=DEBUG in production to troubleshoot a live incident
+    # without a redeploy; remember to revert or the volume of output
+    # will saturate your log-drain budget.
+    LOG_LEVEL: Optional[str] = None
+
     # Observability — optional; Sentry only initialises when this is set
     sentry_dsn: Optional[str] = None
+
+    # /metrics endpoint protection (Phase 2.3e / audit T3). One of the
+    # two MUST be set in production, otherwise init_middleware refuses
+    # to boot — leaving the endpoint open in prod exposes internal
+    # metric names/values that help an attacker plan their next move.
+    #
+    #   METRICS_BEARER_TOKEN — opaque string; caller sends
+    #       ``Authorization: Bearer <token>`` to scrape.
+    #   METRICS_IP_ALLOWLIST — comma-separated CIDR list; caller's
+    #       client IP (resolved via X-Forwarded-For on Fly) must match.
+    #
+    # Prometheus can use a bearer via its ``bearer_token_file`` config
+    # and Fly's private-network metrics sidecar can use the allow-list
+    # (Fly-internal 6PN range). Either / both work — OR semantics.
+    metrics_bearer_token: Optional[str] = None
+    metrics_ip_allowlist: Optional[str] = None
 
     @model_validator(mode="after")
     def _guard_production_secrets(self) -> "Settings":

@@ -78,6 +78,131 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class MetricsGuardMiddleware(BaseHTTPMiddleware):
+    """Gate ``/metrics`` on one of: bearer token OR client-IP allow-list.
+
+    Phase 2.3e of the production-readiness audit (audit finding T3).
+
+    The Prometheus endpoint is installed by
+    ``prometheus-fastapi-instrumentator`` and exposes internal metric
+    names/values — ride counts, stripe queue depth, active WebSocket
+    connections. That is enough reconnaissance to help an attacker
+    figure out which subsystem to probe next, so we lock it down at
+    the HTTP layer.
+
+    Auth model (either / both work — OR semantics):
+      * ``Authorization: Bearer <METRICS_BEARER_TOKEN>`` — Prometheus
+        speaks this via its ``bearer_token_file`` scrape config.
+      * Client IP in one of the ``METRICS_IP_ALLOWLIST`` CIDRs —
+        Fly's internal metrics sidecar scrapes over 6PN private IPs
+        so the operator can allow-list ``fd00::/8`` instead of
+        managing bearer secrets.
+
+    Dev (ENV != production) is open by default unless *either* env
+    var is set — that keeps ``curl localhost:8000/metrics`` working
+    during local dashboard work without a token.
+    """
+
+    def __init__(self, app, bearer_token: str, ip_allowlist_cidrs: tuple[str, ...], require_auth: bool):
+        super().__init__(app)
+        self._bearer_token = bearer_token or ""
+        # Pre-parse CIDRs to avoid re-parsing on every scrape. Invalid
+        # entries are dropped with a warning at init time.
+        import ipaddress
+
+        self._networks: list[ipaddress._BaseNetwork] = []
+        for raw in ip_allowlist_cidrs:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                # strict=False lets operators write "10.0.0.0/8" instead
+                # of having to zero the host bits themselves.
+                self._networks.append(ipaddress.ip_network(raw, strict=False))
+            except ValueError:
+                logger.warning(f"MetricsGuard: skipping invalid CIDR {raw!r}")
+        self._require_auth = require_auth
+
+    def _client_ip(self, request: Request) -> str | None:
+        """Resolve the remote client IP honouring X-Forwarded-For.
+
+        Fly's edge proxy sets ``Fly-Client-IP`` and also populates
+        ``X-Forwarded-For``; we honour the latter as it's the industry
+        standard. Take the LEFTMOST XFF entry because the leftmost
+        represents the original client; the rightmost is the proxy
+        closest to us (untrustworthy for allow-list decisions).
+        """
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            first = xff.split(",", 1)[0].strip()
+            if first:
+                return first
+        fly_client = request.headers.get("fly-client-ip")
+        if fly_client:
+            return fly_client.strip()
+        if request.client:
+            return request.client.host
+        return None
+
+    def _ip_allowed(self, ip_str: str | None) -> bool:
+        if not self._networks or not ip_str:
+            return False
+        import ipaddress
+
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False
+        return any(ip in net for net in self._networks)
+
+    def _bearer_matches(self, request: Request) -> bool:
+        if not self._bearer_token:
+            return False
+        auth = request.headers.get("authorization", "")
+        if not auth.lower().startswith("bearer "):
+            return False
+        # Constant-time compare so we don't leak the token through
+        # timing differences on mismatch.
+        import hmac
+
+        presented = auth.split(" ", 1)[1].strip()
+        return hmac.compare_digest(presented, self._bearer_token)
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        # Only guard the scrape endpoint itself — /health and /health/deep
+        # are explicitly public (uptime checks, load balancer probes).
+        if path != "/metrics":
+            return await call_next(request)
+
+        # Dev fall-through: if neither mechanism is configured AND we're
+        # not in production, let the scrape through. This keeps
+        # `curl localhost:8000/metrics` working during local dashboard
+        # work without forcing every developer to plumb a token.
+        if not self._require_auth and not self._bearer_token and not self._networks:
+            return await call_next(request)
+
+        if self._bearer_matches(request):
+            return await call_next(request)
+
+        client_ip = self._client_ip(request)
+        if self._ip_allowed(client_ip):
+            return await call_next(request)
+
+        # 401 not 403 — 401 tells a well-behaved scraper (Prometheus)
+        # that retrying with a credential would work. 403 is for "I
+        # know who you are and I still said no" which isn't the case
+        # here: we don't know who the caller is.
+        logger.warning(
+            f"MetricsGuard: denied /metrics scrape from {client_ip}"
+        )
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Unauthorized"},
+            headers={"WWW-Authenticate": 'Bearer realm="metrics"'},
+        )
+
+
 _INSECURE_JWT_DEFAULTS = {
     "your-strong-secret-key",  # core/config.py default
     "spinr-dev-secret-key-NOT-FOR-PRODUCTION",  # previous dependencies.py fallback
@@ -212,6 +337,54 @@ def _validate_production_config():
             "want drivers to receive push notifications."
         )
 
+    # 6. Sentry DSN (Phase 2.2 / audit T1). Production deploys without
+    #    Sentry fly blind: errors go to loguru only, which is per-machine
+    #    and has no alerting story. The SDK is already wired in
+    #    server.py; this gate just ensures the DSN is actually present
+    #    so deploys don't silently ship without error reporting.
+    sentry_dsn = (settings.sentry_dsn or "").strip()
+    if not sentry_dsn:
+        errors.append(
+            "SENTRY_DSN is not set. Production deploys must have Sentry "
+            "configured so unhandled exceptions and tracebacks reach an "
+            "alerting backend — loguru-only logging means crashes never "
+            "page anyone. Set SENTRY_DSN=https://…@…ingest.sentry.io/… "
+            "before booting."
+        )
+    elif not sentry_dsn.startswith(("https://", "http://")):
+        # Common copy-paste mistake: pasting the Sentry project URL or
+        # key fragment instead of the full DSN. Fail loudly.
+        errors.append(
+            "SENTRY_DSN does not look like a DSN URL (should start with "
+            f"https://). Got: {sentry_dsn[:40]}…"
+        )
+
+    # 7. /metrics protection (Phase 2.3e / audit T3). The endpoint
+    #    leaks internal metric names/values; at minimum it gives an
+    #    attacker a ride-count view (how many rides, how many drivers
+    #    online, stripe queue depth). Require one of bearer token OR
+    #    IP allow-list in production. Either is fine — Prometheus
+    #    speaks bearer; Fly's metrics sidecar speaks private IP.
+    metrics_bearer = (settings.metrics_bearer_token or "").strip()
+    metrics_allowlist = (settings.metrics_ip_allowlist or "").strip()
+    if not metrics_bearer and not metrics_allowlist:
+        errors.append(
+            "Neither METRICS_BEARER_TOKEN nor METRICS_IP_ALLOWLIST is set. "
+            "In production, /metrics must be protected — leaving it open "
+            "exposes internal service metrics (ride counts, queue depths, "
+            "active connections) to anyone on the public internet. Set at "
+            "least one of:\n"
+            "    METRICS_BEARER_TOKEN=$(openssl rand -hex 32)\n"
+            "    METRICS_IP_ALLOWLIST=10.0.0.0/8,fd00::/8   # Fly 6PN"
+        )
+    elif metrics_bearer and len(metrics_bearer) < 24:
+        # Short tokens are a guessability risk; 32-byte random hex is
+        # standard for bearer secrets.
+        errors.append(
+            f"METRICS_BEARER_TOKEN is only {len(metrics_bearer)} chars; "
+            "use at least 24 (ideally `openssl rand -hex 32`)."
+        )
+
     if errors:
         formatted = "\n  - ".join(errors)
         raise RuntimeError(
@@ -268,6 +441,24 @@ def init_middleware(app):
     # HSTS is only enabled in production because emitting it over
     # plain-HTTP dev would cause browsers to pin the dev host to HTTPS.
     app.add_middleware(SecurityHeadersMiddleware, enable_hsts=is_production)
+
+    # /metrics gate (Phase 2.3e / audit T3). Installed BEFORE the
+    # prometheus-fastapi-instrumentator's /metrics handler runs, so
+    # unauthorised scrapes get a 401 before the metric payload is
+    # rendered. The _validate_production_config gate above guarantees
+    # at least one of bearer / allow-list is set in production; in dev
+    # both may be unset and the middleware falls through.
+    metrics_bearer = (settings.metrics_bearer_token or "").strip()
+    metrics_allowlist_raw = (settings.metrics_ip_allowlist or "").strip()
+    metrics_cidrs: tuple[str, ...] = tuple(
+        p.strip() for p in metrics_allowlist_raw.split(",") if p.strip()
+    )
+    app.add_middleware(
+        MetricsGuardMiddleware,
+        bearer_token=metrics_bearer,
+        ip_allowlist_cidrs=metrics_cidrs,
+        require_auth=is_production,
+    )
 
     # FIX: Add CORS headers to exception responses (FastAPI bug fix)
     @app.exception_handler(Exception)

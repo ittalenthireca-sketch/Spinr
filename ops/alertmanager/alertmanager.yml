@@ -1,0 +1,147 @@
+# Spinr — Alertmanager routing configuration
+#
+# Phase 2.4c of the production-readiness audit (audit finding T2).
+#
+# Pairs with ops/prometheus/alerts.yml. Alerts arrive here with the
+# labels Prometheus attached; the routing tree below fans them out:
+#
+#   severity: page    -> PagerDuty (wakes on-call)
+#   severity: ticket  -> Slack #spinr-alerts (business hours)
+#
+# Secrets (PagerDuty routing key, Slack webhook URL) are NOT checked
+# into git — they're injected at deploy time via env-subst from
+# Fly/Render secrets. The template placeholders below look like
+# `${SPINR_PAGERDUTY_ROUTING_KEY}`; the deploy script replaces them
+# before handing the file to Alertmanager.
+#
+# See docs/ops/SLOs.md for the SLOs these alerts protect, and the
+# per-alert `runbook_url` annotation for remediation steps.
+
+global:
+  # How long to wait before clearing a resolved alert. Short enough
+  # that a flap recovers quickly; long enough that transient blips
+  # don't look like an all-clear.
+  resolve_timeout: 5m
+
+  # SMTP / Slack defaults. Override per-receiver below.
+  smtp_from: "alerts@spinr.app"
+  smtp_smarthost: "smtp.sendgrid.net:587"
+  smtp_auth_username: "apikey"
+  smtp_auth_password: "${SPINR_SMTP_PASSWORD}"
+  smtp_require_tls: true
+
+# ---------------------------------------------------------------------
+# Routing tree
+# ---------------------------------------------------------------------
+# Alertmanager walks this tree top-down, stopping at the first match
+# unless `continue: true` is set. The default receiver at the root
+# is the catch-all; every branch below it is a more specific match.
+route:
+  # Group by alertname + slo so 50 backend machines all hitting the
+  # same SLO collapse into one notification instead of spamming.
+  group_by: ["alertname", "slo"]
+  group_wait: 30s         # Initial wait to batch related alerts.
+  group_interval: 5m      # Batch further alerts into the same group.
+  repeat_interval: 4h     # Re-notify if still firing after 4h.
+
+  receiver: slack-fallback
+
+  routes:
+    # -- Paging alerts -> PagerDuty ----------------------------------
+    - matchers:
+        - severity = "page"
+      receiver: pagerduty-backend
+      group_wait: 10s              # Page fast; don't batch for long.
+      repeat_interval: 1h          # Keep waking on-call until ack'd.
+      continue: true               # Also mirror to Slack for context.
+
+    - matchers:
+        - severity = "page"
+      receiver: slack-alerts
+
+    # -- Ticket alerts -> Slack only ---------------------------------
+    - matchers:
+        - severity = "ticket"
+      receiver: slack-alerts
+      repeat_interval: 12h         # One nag per half-day is enough.
+
+# ---------------------------------------------------------------------
+# Inhibit rules
+# ---------------------------------------------------------------------
+# When a higher-severity alert is firing, suppress related lower
+# severity alerts so the responder isn't triaging the symptom while
+# the root cause is already paged.
+inhibit_rules:
+  # A paging alert for a given SLO suppresses the matching ticket.
+  - source_matchers:
+      - severity = "page"
+    target_matchers:
+      - severity = "ticket"
+    equal: ["slo"]
+
+  # The critical Stripe-queue page suppresses the "backed up" ticket.
+  - source_matchers:
+      - alertname = "SpinrStripeQueueCritical"
+    target_matchers:
+      - alertname = "SpinrStripeQueueBackedUp"
+    equal: []
+
+# ---------------------------------------------------------------------
+# Receivers
+# ---------------------------------------------------------------------
+receivers:
+  - name: pagerduty-backend
+    pagerduty_configs:
+      - routing_key: "${SPINR_PAGERDUTY_ROUTING_KEY}"
+        severity: '{{ if eq .CommonLabels.severity "page" }}critical{{ else }}warning{{ end }}'
+        # Keep PagerDuty summary short — it's the SMS text.
+        description: "{{ .CommonAnnotations.summary }}"
+        # The full alert payload (including runbook_url) lands in
+        # `custom_details`; PagerDuty renders it in the incident view.
+        details:
+          summary: "{{ .CommonAnnotations.summary }}"
+          description: "{{ .CommonAnnotations.description }}"
+          runbook: "{{ .CommonAnnotations.runbook_url }}"
+          dashboard: "{{ .CommonAnnotations.dashboard }}"
+          firing_count: "{{ len .Alerts.Firing }}"
+          resolved_count: "{{ len .Alerts.Resolved }}"
+        links:
+          - href: "{{ .CommonAnnotations.runbook_url }}"
+            text: "Runbook"
+
+  - name: slack-alerts
+    slack_configs:
+      - api_url: "${SPINR_SLACK_WEBHOOK_ALERTS}"
+        channel: "#spinr-alerts"
+        send_resolved: true
+        title: |-
+          [{{ .Status | toUpper }}{{ if eq .Status "firing" }} x {{ len .Alerts.Firing }}{{ end }}] {{ .CommonLabels.alertname }}
+        text: |-
+          *{{ .CommonAnnotations.summary }}*
+          {{ .CommonAnnotations.description }}
+
+          *SLO:* `{{ .CommonLabels.slo }}`  *Severity:* `{{ .CommonLabels.severity }}`
+          {{ if .CommonAnnotations.runbook_url }}<{{ .CommonAnnotations.runbook_url }}|:book: Runbook>{{ end }}
+          {{ if .CommonAnnotations.dashboard }}`{{ .CommonAnnotations.dashboard }}`{{ end }}
+
+  # Catch-all so misrouted alerts don't vanish. Points at the same
+  # Slack channel so they're at least visible; expect them to be
+  # reclassified into a proper route shortly after.
+  - name: slack-fallback
+    slack_configs:
+      - api_url: "${SPINR_SLACK_WEBHOOK_ALERTS}"
+        channel: "#spinr-alerts"
+        send_resolved: true
+        title: "[UNROUTED] {{ .CommonLabels.alertname }}"
+        text: |-
+          Alert hit the fallback receiver — routing tree needs a new branch.
+          *Labels:* {{ range .CommonLabels.SortedPairs }}`{{ .Name }}={{ .Value }}` {{ end }}
+          {{ .CommonAnnotations.summary }}
+
+# ---------------------------------------------------------------------
+# Templates
+# ---------------------------------------------------------------------
+# (Inline templates above are sufficient for now. Once we outgrow
+# them, move to files under /etc/alertmanager/templates/ and list
+# them here as `templates: [/etc/alertmanager/templates/*.tmpl]`.)
+templates: []
