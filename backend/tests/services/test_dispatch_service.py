@@ -182,18 +182,17 @@ class TestSelectDriverByAlgorithm:
 
 
 def _make_db():
-    """Minimal mock db supporting the find / update_one shapes DispatchService uses."""
+    """Minimal mock db matching the db_supabase flat interface DispatchService uses.
+
+    DispatchService calls:
+      - db.find_one(table, filter)            → service_areas lookup
+      - db.get_rows(table, filter, **kwargs)  → driver/ride list queries
+      - db.update_one(table, filter, patch)   → driver claim, ride assignment
+    """
     db = MagicMock()
-    db.service_areas = MagicMock()
-    db.service_areas.find_one = AsyncMock(return_value=None)
-    db.drivers = MagicMock()
-    find_result = MagicMock()
-    find_result.to_list = AsyncMock(return_value=[])
-    db.drivers.find = MagicMock(return_value=find_result)
-    db.drivers.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
-    db.rides = MagicMock()
-    db.rides.find_one = AsyncMock(return_value=None)
-    db.rides.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
+    db.find_one = AsyncMock(return_value=None)
+    db.get_rows = AsyncMock(return_value=[])
+    db.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
     return db
 
 
@@ -207,7 +206,7 @@ class TestDispatchServiceClaim:
 
     async def test_claim_driver_returns_false_when_row_already_taken(self):
         db = _make_db()
-        db.drivers.update_one = AsyncMock(return_value=MagicMock(modified_count=0))
+        db.update_one = AsyncMock(return_value=MagicMock(modified_count=0))
         svc = DispatchService(db)
         assert await svc.claim_driver("d1") is False
 
@@ -215,7 +214,7 @@ class TestDispatchServiceClaim:
         """First driver is taken, second succeeds — walk the list."""
         db = _make_db()
         results = [MagicMock(modified_count=0), MagicMock(modified_count=1)]
-        db.drivers.update_one = AsyncMock(side_effect=results)
+        db.update_one = AsyncMock(side_effect=results)
         svc = DispatchService(db)
 
         ranked = [({"id": "d1"}, 1.0), ({"id": "d2"}, 2.0)]
@@ -224,7 +223,7 @@ class TestDispatchServiceClaim:
 
     async def test_claim_any_driver_returns_none_when_all_taken(self):
         db = _make_db()
-        db.drivers.update_one = AsyncMock(return_value=MagicMock(modified_count=0))
+        db.update_one = AsyncMock(return_value=MagicMock(modified_count=0))
         svc = DispatchService(db)
 
         ranked = [({"id": "d1"}, 1.0), ({"id": "d2"}, 2.0)]
@@ -242,12 +241,13 @@ class TestDispatchServiceAssign:
         now = dt.datetime(2026, 1, 1, 12, 0, 0)
         await svc.assign_driver_to_ride("r1", "d1", now)
 
-        db.rides.update_one.assert_awaited_once()
-        call_args = db.rides.update_one.await_args
-        # Filter identifies the ride by id only (business rule)
-        assert call_args.args[0] == {"id": "r1"}
+        db.update_one.assert_awaited_once()
+        call_args = db.update_one.await_args
+        # Flat interface: args[0]=table, args[1]=filter, args[2]=patch
+        assert call_args.args[0] == "rides"
+        assert call_args.args[1] == {"id": "r1"}
         # Update sets driver_id, status, timestamps
-        update = call_args.args[1]["$set"]
+        update = call_args.args[2]["$set"]
         assert update["driver_id"] == "d1"
         assert update["status"] == "driver_assigned"
         assert update["driver_notified_at"] == now
@@ -258,7 +258,7 @@ class TestDispatchServiceAssign:
 class TestDispatchServiceLastAssigned:
     async def test_returns_last_assigned_driver_id(self):
         db = _make_db()
-        db.rides.find_one = AsyncMock(return_value={"driver_id": "d_last"})
+        db.get_rows = AsyncMock(return_value=[{"driver_id": "d_last"}])
         svc = DispatchService(db)
         assert await svc.last_assigned_driver_id() == "d_last"
 
@@ -274,17 +274,17 @@ class TestDispatchServiceFindCandidates:
     async def test_queries_online_available_matching_vehicle_type(self):
         db = _make_db()
         rows = [{"id": "d1"}, {"id": "d2"}]
-        find_result = MagicMock()
-        find_result.to_list = AsyncMock(return_value=rows)
-        db.drivers.find = MagicMock(return_value=find_result)
+        db.get_rows = AsyncMock(return_value=rows)
         svc = DispatchService(db)
 
         out = await svc.find_candidate_drivers({"vehicle_type_id": "economy"})
         assert out == rows
-        db.drivers.find.assert_called_once_with(
+        db.get_rows.assert_awaited_once_with(
+            "drivers",
             {
                 "is_online": True,
                 "is_available": True,
                 "vehicle_type_id": "economy",
-            }
+            },
+            limit=500,
         )

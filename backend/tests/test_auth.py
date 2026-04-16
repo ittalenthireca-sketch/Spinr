@@ -13,6 +13,17 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.fixture
+def mock_settings():
+    """Mock settings with test values — shared across all test classes."""
+    with patch("backend.dependencies.settings") as mock:
+        mock.JWT_SECRET = "test-secret-key-for-testing-only"
+        mock.ALGORITHM = "HS256"
+        mock.ACCESS_TOKEN_EXPIRE_MINUTES = 30
+        mock.ACCESS_TOKEN_TTL_DAYS = 7
+        yield mock
+
+
 class TestOTPCreation:
     """Tests for OTP generation and verification."""
 
@@ -48,15 +59,6 @@ class TestOTPCreation:
 class TestJWTTokenHandling:
     """Tests for JWT token creation and verification."""
 
-    @pytest.fixture
-    def mock_settings(self):
-        """Mock settings with test values."""
-        with patch("backend.dependencies.settings") as mock_settings:
-            mock_settings.SECRET_KEY = "test-secret-key-for-testing-only"
-            mock_settings.ALGORITHM = "HS256"
-            mock_settings.ACCESS_TOKEN_EXPIRE_MINUTES = 30
-            yield mock_settings
-
     def test_create_jwt_token(self, mock_settings):
         """Test JWT token creation."""
         from backend.dependencies import create_jwt_token
@@ -69,13 +71,13 @@ class TestJWTTokenHandling:
 
     def test_create_jwt_token_with_session(self, mock_settings):
         """Test JWT token creation with session ID."""
-        from backend.dependencies import create_jwt_token
+        from backend.dependencies import create_jwt_token, verify_jwt_token
 
         token = create_jwt_token(user_id="user_123", phone="+1234567890", session_id="session_abc")
 
         assert token is not None
         # Verify token can be decoded
-        decoded = create_jwt_token.verify_jwt_token(token, mock_settings)
+        decoded = verify_jwt_token(token)
         assert decoded["session_id"] == "session_abc"
 
     def test_verify_jwt_token_valid(self, mock_settings):
@@ -89,7 +91,7 @@ class TestJWTTokenHandling:
         decoded = verify_jwt_token(token)
 
         assert decoded is not None
-        assert decoded["sub"] == "user_123"
+        assert decoded["user_id"] == "user_123"
         assert decoded["phone"] == "+1234567890"
 
     def test_verify_jwt_token_invalid(self, mock_settings):
@@ -100,8 +102,9 @@ class TestJWTTokenHandling:
             verify_jwt_token("invalid.token.here")
 
     def test_verify_jwt_token_expired(self, mock_settings):
-        """Test verifying an expired JWT token."""
+        """Test verifying an expired JWT token raises HTTPException 401."""
         import jwt
+        from fastapi import HTTPException
 
         from backend.dependencies import verify_jwt_token
 
@@ -112,14 +115,16 @@ class TestJWTTokenHandling:
             "exp": datetime.utcnow() - timedelta(minutes=5),  # Expired 5 minutes ago
         }
 
-        expired_token = jwt.encode(payload, mock_settings.SECRET_KEY, algorithm=mock_settings.ALGORITHM)
+        expired_token = jwt.encode(payload, mock_settings.JWT_SECRET, algorithm=mock_settings.ALGORITHM)
 
-        with pytest.raises(jwt.ExpiredSignatureError):
+        with pytest.raises(HTTPException) as exc_info:
             verify_jwt_token(expired_token)
+        assert exc_info.value.status_code == 401
 
     def test_verify_jwt_token_wrong_algorithm(self, mock_settings):
-        """Test verifying token with wrong algorithm."""
+        """Test verifying token signed with wrong secret raises HTTPException 401."""
         import jwt
+        from fastapi import HTTPException
 
         from backend.dependencies import verify_jwt_token
 
@@ -128,8 +133,9 @@ class TestJWTTokenHandling:
 
         wrong_token = jwt.encode(payload, "wrong-secret-key", algorithm=mock_settings.ALGORITHM)
 
-        with pytest.raises(jwt.InvalidTokenError):
+        with pytest.raises(HTTPException) as exc_info:
             verify_jwt_token(wrong_token)
+        assert exc_info.value.status_code == 401
 
 
 class TestGetCurrentUser:
@@ -151,11 +157,13 @@ class TestGetCurrentUser:
         from backend.dependencies import get_current_user
 
         with patch("backend.dependencies.verify_jwt_token") as mock_verify:
-            mock_verify.return_value = {"sub": "user_123", "phone": "+1234567890"}
+            # Payload must contain "user_id" — that's the key create_jwt_token puts in
+            mock_verify.return_value = {"user_id": "user_123", "phone": "+1234567890"}
 
             user = await get_current_user(mock_credentials)
 
-            assert user["user_id"] == "user_123"
+            # Function returns the DB/fallback user dict, which uses "id" not "user_id"
+            assert user["id"] == "user_123"
             assert user["phone"] == "+1234567890"
 
     @pytest.mark.asyncio
@@ -194,7 +202,7 @@ class TestAdminUserVerification:
         """Test get_admin_user with admin user."""
         from backend.dependencies import get_admin_user
 
-        admin_user = {"user_id": "admin_123", "phone": "+1234567890", "is_admin": True}
+        admin_user = {"user_id": "admin_123", "phone": "+1234567890", "is_admin": True, "role": "admin"}
 
         result = await get_admin_user(admin_user)
 
@@ -213,7 +221,7 @@ class TestAdminUserVerification:
             await get_admin_user(regular_user)
 
         assert exc_info.value.status_code == 403
-        assert exc_info.value.detail == "User is not an admin"
+        assert exc_info.value.detail == "Admin access required"
 
 
 class TestFirebaseIntegration:
@@ -224,10 +232,10 @@ class TestFirebaseIntegration:
         """Test Firebase initialization."""
         from backend.core.security import init_firebase
 
-        with patch("backend.core.security.firebase") as mock_firebase:
-            init_firebase()
-            # Firebase should be initialized
-            assert mock_firebase.initialize_app.called or True  # May be skipped if already init
+        # conftest already patches backend.core.security.firebase_admin → mock_firebase_admin
+        init_firebase()
+        # initialize_app should have been called (or skipped if already initialised)
+        assert mock_firebase_admin.initialize_app.called or True
 
     @pytest.mark.asyncio
     async def test_create_firebase_user(self, mock_firebase_admin):
@@ -237,7 +245,8 @@ class TestFirebaseIntegration:
         mock_firebase_admin.auth.create_user.return_value = MagicMock(uid="firebase_uid")
 
         with patch("backend.db_supabase.supabase") as mock_supabase:
-            mock_supabase.table.return_value.insert.return_value.execute = AsyncMock(
+            # run_sync calls .execute() synchronously — use MagicMock, not AsyncMock
+            mock_supabase.table.return_value.insert.return_value.execute = MagicMock(
                 return_value=MagicMock(data=[{"id": "user_123"}])
             )
 
@@ -255,7 +264,8 @@ class TestFirebaseIntegration:
         with patch("backend.db_supabase.supabase") as mock_supabase:
             mock_response = MagicMock()
             mock_response.data = [{"id": "user_123", "phone": "+1234567890"}]
-            mock_supabase.table.return_value.select.return_value.eq.return_value.execute = AsyncMock(
+            # run_sync calls .execute() synchronously — use MagicMock, not AsyncMock
+            mock_supabase.table.return_value.select.return_value.eq.return_value.execute = MagicMock(
                 return_value=mock_response
             )
 
@@ -274,7 +284,8 @@ class TestFirebaseIntegration:
         with patch("backend.db_supabase.supabase") as mock_supabase:
             mock_response = MagicMock()
             mock_response.data = [{"id": "user_123", "phone": "+1234567890"}]
-            mock_supabase.table.return_value.select.return_value.eq.return_value.execute = AsyncMock(
+            # run_sync calls .execute() synchronously — use MagicMock, not AsyncMock
+            mock_supabase.table.return_value.select.return_value.eq.return_value.execute = MagicMock(
                 return_value=mock_response
             )
 
@@ -415,11 +426,11 @@ class TestTokenRefresh:
         original_token = create_jwt_token(user_id="user_123", phone="+1234567890", session_id="session_abc")
 
         decoded = verify_jwt_token(original_token)
-        assert decoded["sub"] == "user_123"
+        assert decoded["user_id"] == "user_123"
 
         # Create refreshed token with same session
         refreshed_token = create_jwt_token(
-            user_id=decoded["sub"], phone=decoded["phone"], session_id=decoded.get("session_id")
+            user_id=decoded["user_id"], phone=decoded["phone"], session_id=decoded.get("session_id")
         )
 
         refreshed_decoded = verify_jwt_token(refreshed_token)
