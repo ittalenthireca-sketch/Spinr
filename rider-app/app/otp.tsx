@@ -15,10 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '@shared/store/authStore';
-import api, { setInMemoryToken } from '@shared/api/client';
-import SpinrConfig from '@shared/config/spinr.config';
+import api from '@shared/api/client';
 import CustomAlert from '@shared/components/CustomAlert';
-import Analytics from '@shared/analytics';
 import { useTheme } from '@shared/theme/ThemeContext';
 import type { ThemeColors } from '@shared/theme/index';
 
