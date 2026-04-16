@@ -1,4 +1,10 @@
+import asyncio
+import logging
+import uuid
+from datetime import datetime
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from firebase_admin import auth as firebase_auth
 
 try:
     from .. import db_supabase
@@ -8,12 +14,8 @@ except ImportError:
     import db_supabase
     from dependencies import verify_jwt_token
     from socket_manager import manager
-import asyncio
-import logging
-import uuid
-from datetime import datetime
 
-from firebase_admin import auth as firebase_auth
+db = db_supabase  # legacy alias
 
 logger = logging.getLogger(__name__)
 
@@ -103,15 +105,35 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
 
         # If connecting as driver, ensure user has a driver profile
         if client_type == "driver":
-            driver_profile = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("drivers", {"user_id": user["id"]}, limit=1))
+            driver_profile = (lambda _r: _r[0] if _r else None)(
+                await db_supabase.get_rows("drivers", {"user_id": user["id"]}, limit=1)
+            )
             if not driver_profile:
                 await websocket.send_json({"type": "error", "message": "user_is_not_a_driver"})
+                await websocket.close()
+                return
+        elif client_type == "admin":
+            # Admin clients must have admin or super_admin role
+            if user.get("role") not in ("admin", "super_admin"):
+                await websocket.send_json({"type": "error", "message": "admin_access_required"})
                 await websocket.close()
                 return
 
         # Register the connection with a server-controlled key to prevent impersonation
         connection_key = f"{client_type}_{user['id']}"
         await manager.connect(websocket, connection_key, role=client_type)
+
+        # Notify admins that a driver came online
+        if client_type == "driver":
+            driver_profile_for_status = await db.find_one("drivers", {"user_id": user["id"]})
+            if driver_profile_for_status:
+                await manager.broadcast_to_admins(
+                    {
+                        "type": "driver_status_changed",
+                        "driver_id": driver_profile_for_status["id"],
+                        "is_online": True,
+                    }
+                )
 
         # GAP FIX: Start heartbeat background task
         hb_task = asyncio.create_task(heartbeat_task(websocket, connection_key))
@@ -157,14 +179,18 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
 
                 # If driver_id not sent, look it up from the authenticated user
                 if not driver_id and client_type == "driver":
-                    dp = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("drivers", {"user_id": user["id"]}, limit=1))
+                    dp = (lambda _r: _r[0] if _r else None)(
+                        await db_supabase.get_rows("drivers", {"user_id": user["id"]}, limit=1)
+                    )
                     if dp:
                         driver_id = dp["id"]
 
                 # Verify driver ownership
                 is_valid_driver = False
                 if client_type == "driver" and driver_id:
-                    owned_driver = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("drivers", {"id": driver_id, "user_id": user["id"]}, limit=1))
+                    owned_driver = (lambda _r: _r[0] if _r else None)(
+                        await db_supabase.get_rows("drivers", {"id": driver_id, "user_id": user["id"]}, limit=1)
+                    )
                     if owned_driver:
                         is_valid_driver = True
 
@@ -173,7 +199,18 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
                     await db_supabase.update_driver_location(driver_id, lat, lng)
 
                     # ── Persist GPS breadcrumb ──────────────────────
-                    active_ride = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("rides", { "driver_id": driver_id, "status": {"$in": ["driver_assigned", "driver_accepted", "driver_arrived", "in_progress"]}, }, limit=1))
+                    active_ride = (lambda _r: _r[0] if _r else None)(
+                        await db_supabase.get_rows(
+                            "rides",
+                            {
+                                "driver_id": driver_id,
+                                "status": {
+                                    "$in": ["driver_assigned", "driver_accepted", "driver_arrived", "in_progress"]
+                                },
+                            },
+                            limit=1,
+                        )
+                    )
                     ride_id = active_ride["id"] if active_ride else None
 
                     # Determine tracking phase
@@ -203,7 +240,14 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
                     await db_supabase.insert_one("driver_location_history", breadcrumb)
 
                     # Forward to rider in real-time
-                    rides = await db_supabase.get_rows("rides",  { "driver_id": driver_id, "status": {"$in": ["driver_assigned", "driver_arrived", "in_progress"]}, } , limit=10)
+                    rides = await db_supabase.get_rows(
+                        "rides",
+                        {
+                            "driver_id": driver_id,
+                            "status": {"$in": ["driver_assigned", "driver_arrived", "in_progress"]},
+                        },
+                        limit=10,
+                    )
                     for ride in rides:
                         await manager.send_personal_message(
                             {
@@ -217,16 +261,32 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
                             f"rider_{ride['rider_id']}",
                         )
 
+                    # Broadcast live location to all connected admin monitoring clients
+                    await manager.broadcast_to_admins(
+                        {
+                            "type": "driver_location_update",
+                            "driver_id": driver_id,
+                            "lat": lat,
+                            "lng": lng,
+                            "speed": data.get("speed"),
+                            "heading": data.get("heading"),
+                        }
+                    )
+
             elif data.get("type") == "location_batch":
                 # Batch upload of buffered GPS points (offline recovery)
                 points = data.get("points", [])
                 driver_id = data.get("driver_id")
                 if not driver_id and client_type == "driver":
-                    dp = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("drivers", {"user_id": user["id"]}, limit=1))
+                    dp = (lambda _r: _r[0] if _r else None)(
+                        await db_supabase.get_rows("drivers", {"user_id": user["id"]}, limit=1)
+                    )
                     if dp:
                         driver_id = dp["id"]
                 if driver_id and points and client_type == "driver":
-                    owned = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("drivers", {"id": driver_id, "user_id": user["id"]}, limit=1))
+                    owned = (lambda _r: _r[0] if _r else None)(
+                        await db_supabase.get_rows("drivers", {"id": driver_id, "user_id": user["id"]}, limit=1)
+                    )
                     if owned:
                         docs = []
                         for pt in points[:500]:  # cap at 500 points per batch
@@ -261,13 +321,23 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
                             {"type": "ride_status_changed", "ride_id": ride_id, "status": status},
                             f"rider_{ride['rider_id']}",
                         )
+                        # Broadcast to admin monitoring clients
+                        await manager.broadcast_to_admins(
+                            {
+                                "type": "ride_status_changed",
+                                "ride_id": ride_id,
+                                "status": status,
+                            }
+                        )
 
             elif data.get("type") == "get_nearby_drivers":
                 lat = data.get("lat")
                 lng = data.get("lng")
                 radius = data.get("radius", 5)  # km
                 if lat and lng:
-                    drivers = await db_supabase.get_rows("drivers", {"is_online": True, "is_available": True}, limit=100)
+                    drivers = await db_supabase.get_rows(
+                        "drivers", {"is_online": True, "is_available": True}, limit=100
+                    )
 
                     nearby = []
                     for driver in drivers:
@@ -321,6 +391,17 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
                             await manager.send_personal_message(msg_data, target)
 
     except WebSocketDisconnect:
+        if connection_key and connection_key.startswith("driver_"):
+            # Notify admins the driver went offline
+            driver_profile_off = await db.find_one("drivers", {"user_id": user["id"]}) if user else None
+            if driver_profile_off:
+                await manager.broadcast_to_admins(
+                    {
+                        "type": "driver_status_changed",
+                        "driver_id": driver_profile_off["id"],
+                        "is_online": False,
+                    }
+                )
         if connection_key:
             manager.disconnect(connection_key)
     except Exception as e:

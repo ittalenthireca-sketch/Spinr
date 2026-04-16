@@ -17,7 +17,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { auth } from '@shared/config/firebaseConfig';
 import api from '@shared/api/client';
 import SpinrConfig from '@shared/config/spinr.config';
 import { useLanguageStore } from '../store/languageStore';
@@ -26,17 +25,6 @@ import { useTheme } from '@shared/theme/ThemeContext';
 import type { ThemeColors } from '@shared/theme/index';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-// Only import Firebase phone auth when Firebase is actually configured
-const isFirebaseConfigured = typeof auth.onAuthStateChanged === 'function';
-let PhoneAuthProvider: any = null;
-if (isFirebaseConfigured) {
-  try {
-    PhoneAuthProvider = require('firebase/auth').PhoneAuthProvider;
-  } catch (e) {
-    console.warn('Firebase auth not available');
-  }
-}
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -47,7 +35,6 @@ export default function LoginScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState(false);
-  const recaptchaVerifier = useRef(null);
   const inputRef = useRef<TextInput>(null);
 
   // Alert state
@@ -119,31 +106,21 @@ export default function LoginScreen() {
     const formattedNumber = `+1${phoneNumber.replace(/\D/g, '')}`;
 
     try {
-      if (isFirebaseConfigured && PhoneAuthProvider) {
-        const phoneProvider = new PhoneAuthProvider(auth);
-        const verificationId = await phoneProvider.verifyPhoneNumber(
-          formattedNumber,
-          recaptchaVerifier.current!
-        );
+      // Always use backend OTP — Twilio sends real SMS in production,
+      // falls back to code 123456 in dev when Twilio is not configured.
+      const response = await api.post('/auth/send-otp', { phone: formattedNumber });
+      if (response.data.success) {
         router.push({
           pathname: '/otp',
-          params: { verificationId, phoneNumber: formattedNumber, mode: 'firebase' }
+          params: { phoneNumber: formattedNumber, mode: 'backend' }
         });
       } else {
-        const response = await api.post('/auth/send-otp', { phone: formattedNumber });
-        if (response.data.success) {
-          router.push({
-            pathname: '/otp',
-            params: { phoneNumber: formattedNumber, mode: 'backend' }
-          });
-        } else {
-          setAlertState({
-            visible: true,
-            title: 'Failed',
-            message: 'Could not send verification code. Please try again.',
-            variant: 'danger',
-          });
-        }
+        setAlertState({
+          visible: true,
+          title: 'Failed',
+          message: 'Could not send verification code. Please try again.',
+          variant: 'danger',
+        });
       }
     } catch (error: any) {
       setAlertState({
@@ -240,7 +217,7 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          {!isFirebaseConfigured && (
+          {__DEV__ && (
             <View style={styles.devHintContainer}>
               <Ionicons name="information-circle" size={14} color={colors.primary} />
               <Text style={styles.devHint}>Dev mode — OTP is 1234</Text>

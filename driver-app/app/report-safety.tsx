@@ -23,6 +23,9 @@ export default function ReportSafetyScreen() {
     const [issue, setIssue] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
+    const location = useLocationStore(state => state.coords);
+    const activeRide = useDriverStore(state => state.activeRide);
+
     const handleSubmit = async () => {
         if (!issue.trim()) {
             Alert.alert('Error', 'Please describe the safety issue before submitting.');
@@ -30,12 +33,34 @@ export default function ReportSafetyScreen() {
         }
 
         setSubmitting(true);
+
+        // Include location and ride context for investigation
+        const reportData = {
+            description: issue,
+            location: location ? {
+                latitude: location.latitude,
+                longitude: location.longitude,
+                accuracy: location.accuracy,
+                timestamp: new Date().toISOString()
+            } : null,
+            ride_context: activeRide ? {
+                ride_id: activeRide.id,
+                pickup_location: activeRide.pickup_location,
+                dropoff_location: activeRide.dropoff_location,
+                rider_id: activeRide.rider_id
+            } : null,
+            reported_at: new Date().toISOString()
+        };
+
         // Submit to the safety-report endpoint
         try {
             // G22: Use the shared API client which attaches the auth token.
             // Previously used raw fetch without Authorization header.
             await api.post('/support/tickets/safety-report', { description: issue });
 
+            if (!response.ok) {
+                throw new Error('Failed to submit report');
+            }
 
             Alert.alert(
                 'Report Submitted',

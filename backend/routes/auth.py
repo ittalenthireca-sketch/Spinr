@@ -1,8 +1,16 @@
+import logging
+import uuid
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 try:
     from .. import db_supabase
+    from ..core.config import settings
+    from ..core.config import settings as _core_settings
     from ..dependencies import (
         OTP_EXPIRY_MINUTES,
         create_jwt_token,
@@ -21,6 +29,8 @@ try:
     from ..validators import validate_phone
 except ImportError:
     import db_supabase
+    from core.config import settings
+    from core.config import settings as _core_settings
     from dependencies import (
         OTP_EXPIRY_MINUTES,
         create_jwt_token,
@@ -37,12 +47,8 @@ except ImportError:
         revoke_refresh_token,
     )
     from validators import validate_phone
-import logging
-import uuid
-from datetime import datetime, timedelta, timezone
 
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+db = db_supabase  # legacy alias
 
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
@@ -100,7 +106,7 @@ async def send_otp(request: Request, body: SendOTPRequest):
         twilio_from=settings.get("twilio_from_number", "") if settings else "",
     )
     if not sms_result.get("success"):
-        logger.error(f"Failed to send OTP SMS to {phone}: {sms_result.get('error')}")
+        logger.error(f"Failed to send OTP SMS: {sms_result.get('error')}")
         raise HTTPException(status_code=500, detail="Failed to send verification code")
 
     response = {"success": True, "message": f"OTP sent to {phone}"}
@@ -123,8 +129,9 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
         logger.warning(f"Could not query OTP from DB: {e}")
 
     # Dev fallback: accept code 123456 when no OTP record found (Twilio not configured)
-    if not otp_record and code == "123456":
-        logger.info(f"Dev mode: accepting code 123456 for {phone}")
+    # DISABLED IN PRODUCTION: only allow in development environment
+    if not otp_record and code == "123456" and settings.ENV.lower() == "development":
+        logger.info("Dev mode: accepting code 123456")
         otp_record = {"id": "dev", "phone": phone, "code": code, "expires_at": datetime.utcnow() + timedelta(minutes=5)}
 
     if not otp_record:
@@ -198,9 +205,9 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
             logger.info("Token created. Validating UserProfile...")
             try:
                 user_obj = UserProfile(**existing_user)
-                logger.info(f"UserProfile valid for user: {existing_user.get('id')}")
+                logger.info("UserProfile valid")
             except Exception as e:
-                logger.error(f"UserProfile validation failed: {e}")
+                logger.error("UserProfile validation failed")
                 # Fallback constructs if validation fails to inspect why
                 raise e
 
@@ -299,8 +306,8 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         # Self-heal the column so the next login is fast and consistent.
         try:
             await db_supabase.update_one("users", {"id": current_user["id"]}, {"profile_complete": True})
-        except Exception as e:
-            logger.warning(f"Could not self-heal profile_complete for {current_user.get('id')}: {e}")
+        except Exception:
+            logger.warning("Could not self-heal profile_complete")
         current_user["profile_complete"] = True
 
     # Derive driver onboarding status (None for non-drivers).
@@ -313,8 +320,8 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         current_user["driver_onboarding_status"] = status
         current_user["driver_onboarding_detail"] = detail
         current_user["driver_onboarding_next_screen"] = next_screen
-    except Exception as e:
-        logger.warning(f"Could not derive onboarding status for {current_user.get('id')}: {e}")
+    except Exception:
+        logger.warning("Could not derive onboarding status")
 
     return UserProfile(**current_user)
 
@@ -368,7 +375,7 @@ async def refresh_access_token(request: Request, body: RefreshRequest):
 
     user = None
     try:
-        user = await db.users.find_one({"id": user_id})
+        user = await db.find_one("users", {"id": user_id})
     except Exception as e:
         logger.warning(f"refresh: user lookup failed for {user_id}: {e}")
     if not user:
@@ -435,7 +442,7 @@ async def logout_all(request: Request, current_user: dict = Depends(get_current_
     user_id = current_user["id"]
     new_version = int(current_user.get("token_version") or 0) + 1
     try:
-        await db.users.update_one({"id": user_id}, {"$set": {"token_version": new_version}})
+        await db.update_one("users", {"id": user_id}, {"$set": {"token_version": new_version}})
     except Exception as e:
         logger.warning(f"logout-all: could not bump token_version for {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Could not invalidate sessions") from e

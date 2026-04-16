@@ -20,6 +20,8 @@ except ImportError:
     from dependencies import get_current_user
     from settings_loader import get_app_settings
 
+db = db_supabase  # legacy alias
+
 logger = logging.getLogger(__name__)
 
 api_router = APIRouter(prefix="/disputes", tags=["Disputes"])
@@ -55,7 +57,11 @@ async def create_dispute(
         raise HTTPException(status_code=400, detail="Can only dispute completed or cancelled rides")
 
     # Check for existing open dispute on same ride
-    existing = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("disputes", {"ride_id": req.ride_id, "status": {"$in": ["open", "under_review"]}}, limit=1))
+    existing = (lambda _r: _r[0] if _r else None)(
+        await db_supabase.get_rows(
+            "disputes", {"ride_id": req.ride_id, "status": {"$in": ["open", "under_review"]}}, limit=1
+        )
+    )
     if existing:
         raise HTTPException(status_code=400, detail="A dispute is already open for this ride")
 
@@ -115,7 +121,9 @@ async def admin_get_disputes(
     filters: Dict[str, Any] = {}
     if status:
         filters["status"] = status
-    disputes = await db_supabase.get_rows("disputes", filters, order="created_at", desc=True, limit=limit, offset=offset)
+    disputes = await db_supabase.get_rows(
+        "disputes", filters, order="created_at", desc=True, limit=limit, offset=offset
+    )
 
     # Enrich with user + ride info
     enriched = []
@@ -159,7 +167,7 @@ async def admin_resolve_dispute(dispute_id: str, req: ResolveDisputeRequest):
     refund_result: Dict[str, Any] = {}
     if req.resolution in ("approved", "partial_refund") and req.refund_amount:
         refund_amount_cents = int(float(req.refund_amount) * 100)
-        ride = await db.rides.find_one({"id": dispute.get("ride_id")})
+        ride = await db.find_one("rides", {"id": dispute.get("ride_id")})
         payment_intent_id = (ride or {}).get("stripe_charge_id") or (ride or {}).get("payment_intent_id")
 
         if not payment_intent_id:
@@ -200,7 +208,8 @@ async def admin_resolve_dispute(dispute_id: str, req: ResolveDisputeRequest):
                 refund_result = {"status": "failed", "error": str(refund_err)}
 
         # Persist refund outcome on the dispute record
-        await db.disputes.update_one(
+        await db.update_one(
+            "disputes",
             {"id": dispute_id},
             {"$set": {"refund_result": refund_result, "updated_at": datetime.utcnow().isoformat()}},
         )

@@ -14,6 +14,7 @@ from features import admin_support_router, pricing_router, support_router
 from routes.addresses import api_router as addresses_router
 from routes.admin import admin_auth_router
 from routes.admin import admin_router as admin_router
+from routes.admin.monitoring import router as monitoring_router
 from routes.auth import api_router as auth_router
 from routes.corporate_accounts import router as corporate_accounts_router
 from routes.disputes import api_router as disputes_router
@@ -38,7 +39,7 @@ from utils.metrics import install_fastapi_instrumentator
 # Initialize Firebase
 init_firebase()
 
-app = FastAPI(title="Spinr API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Spinr API", version="1.0.0", lifespan=lifespan, redirect_slashes=False)
 
 # Initialize middleware
 init_middleware(app)
@@ -63,7 +64,6 @@ v1_api_router.include_router(documents_router)
 v1_api_router.include_router(admin_documents_router)
 v1_api_router.include_router(drivers_router)
 v1_api_router.include_router(admin_router)
-v1_api_router.include_router(admin_auth_router)
 v1_api_router.include_router(corporate_accounts_router)
 v1_api_router.include_router(users_router)
 v1_api_router.include_router(addresses_router)
@@ -103,6 +103,7 @@ app.include_router(admin_auth_router, prefix="/api")
 app.include_router(corporate_accounts_router, prefix="/api")
 # files_router serves document files at /api/documents/{id} (used by admin dashboard)
 app.include_router(files_router, prefix="/api")
+app.include_router(monitoring_router, prefix="/api")
 
 # Configure structured logging with Loguru
 import sys  # noqa: E402
