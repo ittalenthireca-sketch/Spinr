@@ -1,0 +1,100 @@
+name: Upstream Sync
+
+# Runs twice daily (07:00 and 19:00 UTC) and can be triggered manually.
+# On manual dispatch, a dry_run option is available — set to true to get
+# a diff report without creating a branch or PR.
+#
+# Secrets required (set in repo Settings → Secrets and variables → Actions):
+#   GH_SYNC_TOKEN — a PAT with repo + workflow scopes so the workflow can
+#                   push the sync branch and open a PR.
+#                   (GITHUB_TOKEN cannot push to protected branches or
+#                    trigger other workflows, so a PAT is needed.)
+
+on:
+  schedule:
+    # 07:00 UTC — morning sync
+    - cron: '0 7 * * *'
+    # 19:00 UTC — evening sync
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run — diff only, no branch or PR'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+      auto_merge:
+        description: 'Auto-merge PR if CI passes (requires branch protection bypass)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+jobs:
+  sync:
+    name: Sync with upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          # Full history needed for accurate git merge
+          fetch-depth: 0
+          token: ${{ secrets.GH_SYNC_TOKEN || github.token }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "spinr-sync-bot"
+          git config user.email "sync-bot@spinr.app"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/srikumarimuddana-lab/spinrvm.git || true
+          git fetch upstream main --quiet
+
+      - name: Install GitHub CLI (already present on ubuntu-latest)
+        run: gh --version
+
+      - name: Set up Python (for ruff lint fix step)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff
+        run: pip install ruff --quiet
+
+      - name: Run upstream sync script
+        env:
+          GH_TOKEN: ${{ secrets.GH_SYNC_TOKEN || github.token }}
+          # Safety gate — auto-merge only when explicitly requested
+          GH_AUTO_MERGE: ${{ github.event.inputs.auto_merge || 'false' }}
+        run: |
+          chmod +x scripts/upstream_sync.sh
+          DRY_FLAG=""
+          AUTO_FLAG=""
+          [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ] && DRY_FLAG="--dry-run"
+          [ "$GH_AUTO_MERGE" = "true" ] && AUTO_FLAG="--auto-merge"
+          bash scripts/upstream_sync.sh $DRY_FLAG $AUTO_FLAG
+
+      - name: Upload sync report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-report-${{ github.run_number }}
+          path: docs/sync-reports/*.md
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Post summary to job
+        if: always()
+        run: |
+          REPORT=$(ls docs/sync-reports/*.md 2>/dev/null | sort -r | head -1)
+          if [ -n "$REPORT" ]; then
+            echo "## Upstream Sync Report" >> $GITHUB_STEP_SUMMARY
+            cat "$REPORT" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No report generated (dry-run or already in sync)." >> $GITHUB_STEP_SUMMARY
+          fi
