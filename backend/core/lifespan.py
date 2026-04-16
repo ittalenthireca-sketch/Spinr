@@ -16,7 +16,7 @@ except ImportError:  # pragma: no cover - import style varies by entrypoint
 # Configure structured logging before any other code emits a log line.
 configure_logging()
 
-from supabase_client import supabase
+from supabase_client import supabase  # noqa: E402
 
 
 def _should_run_background_tasks() -> bool:

@@ -168,12 +168,12 @@ so there is a 30+ day grace window before the cron needs to fire for
 the first time.
 """
 
+# ruff: noqa: S608
 from __future__ import annotations
 
 from typing import Sequence, Union
 
 from alembic import op
-
 
 # revision identifiers, used by Alembic.
 revision: str = "0008_gps_breadcrumbs_partition"

@@ -57,7 +57,6 @@ in a deliberate schema reversal.
 
 from alembic import op
 
-
 revision = "0006_tos_acceptance_columns"
 down_revision = "0005_bg_task_heartbeat"
 branch_labels = None
