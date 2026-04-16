@@ -78,17 +78,8 @@ twilio>=9.0.0
 boto3>=1.34.0
 
 # Error monitoring
-sentry-sdk>=1.40.0,<2.9.0
-# Prometheus metrics exporter (Phase 2.3 / audit T3). Auto-instruments
-# FastAPI with request count / latency histograms and exposes /metrics
-# for scrape-based monitoring. Pinned to the 7.x series so we don't
-# silently adopt a breaking API change.
+sentry-sdk>=1.40.0,<2.59.0
 prometheus-fastapi-instrumentator>=7.0.0,<8.0.0
-# Core Prometheus client — needed directly for the custom gauges in
-# utils/metrics.py (instrumentator only covers HTTP-request-flavour
-# metrics). Already a transitive dep of the instrumentator but we
-# pin it explicitly so the custom gauges don't silently break on
-# a major-version bump.
 prometheus-client>=0.20.0,<1.0.0
 
 # Testing

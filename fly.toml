@@ -27,12 +27,9 @@ primary_region = "sjc"
   force_https = true
   # Worker split landed (see [processes] above); keep min_machines=1 on
   # the app pool so riders always have an API to talk to during deploys.
-  # The worker process has its own machine count controlled out-of-band
-  # via `fly scale count worker=1` (see docs/runbooks/fly-deploy.md if
-  # it exists, or run once: `fly scale count app=1 worker=1`).
   auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
   processes = ["app"]
 
 # Per-process VM sizing. The worker is pure background I/O (no HTTP
