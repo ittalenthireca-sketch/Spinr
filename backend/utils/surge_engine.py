@@ -174,7 +174,7 @@ async def recalculate_all_surges() -> List[Dict[str, Any]]:
                     "is_active": new_multiplier > 1.0,
                     "created_at": datetime.utcnow().isoformat(),
                     "updated_at": datetime.utcnow().isoformat(),
-                }
+                },
             )
 
             results.append(metrics)

@@ -97,8 +97,7 @@ INDEXES: list[tuple[str, str, str]] = [
         # Partial index: only "in-flight" statuses are interesting to
         # the dispatcher. Keeps the index small even as completed rides
         # accumulate into the millions.
-        "ON public.rides (service_area_id, status) "
-        "WHERE status IN ('searching', 'driver_assigned')",
+        "ON public.rides (service_area_id, status) WHERE status IN ('searching', 'driver_assigned')",
     ),
     (
         "idx_rides_driver_created",

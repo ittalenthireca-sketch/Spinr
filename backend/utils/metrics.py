@@ -133,9 +133,7 @@ def install_fastapi_instrumentator(app) -> None:
     try:
         from prometheus_fastapi_instrumentator import Instrumentator
     except ImportError:
-        logger.warning(
-            "prometheus-fastapi-instrumentator not installed — /metrics will not be exposed"
-        )
+        logger.warning("prometheus-fastapi-instrumentator not installed — /metrics will not be exposed")
         return
 
     # `should_respect_env_var=False` keeps the instrumentator from
@@ -238,9 +236,7 @@ async def _refresh_periodic_gauges() -> None:
                 try:
                     # Supabase returns timestamptz as ISO-8601; handle
                     # both "…Z" and "…+00:00" forms.
-                    last_run_at = datetime.fromisoformat(
-                        str(last_run_at_raw).replace("Z", "+00:00")
-                    )
+                    last_run_at = datetime.fromisoformat(str(last_run_at_raw).replace("Z", "+00:00"))
                     age_seconds = max(0.0, (now - last_run_at).total_seconds())
                 except Exception:
                     age_seconds = 0.0

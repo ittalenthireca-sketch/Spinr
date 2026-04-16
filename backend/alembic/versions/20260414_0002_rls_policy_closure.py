@@ -100,15 +100,15 @@ depends_on: Union[str, Sequence[str], None] = None
 # + select_own(owner = auth.uid()).  The owner column resolves to the
 # Supabase auth user id (text-compared to auth.uid()::text).
 OWNER_TABLES: list[tuple[str, str]] = [
-    ("saved_addresses",         "user_id"),
-    ("wallets",                 "user_id"),
-    ("loyalty_accounts",        "user_id"),
-    ("fare_splits",             "requester_id"),
-    ("emergency_contacts",      "user_id"),
-    ("payouts",                 "driver_id"),
-    ("bank_accounts",           "driver_id"),
-    ("driver_subscriptions",    "driver_id"),
-    ("quest_progress",          "driver_id"),
+    ("saved_addresses", "user_id"),
+    ("wallets", "user_id"),
+    ("loyalty_accounts", "user_id"),
+    ("fare_splits", "requester_id"),
+    ("emergency_contacts", "user_id"),
+    ("payouts", "driver_id"),
+    ("bank_accounts", "driver_id"),
+    ("driver_subscriptions", "driver_id"),
+    ("quest_progress", "driver_id"),
 ]
 
 # Sensitive tables — deny_all only; no client read path.  Backend reads
@@ -134,6 +134,7 @@ PUBLIC_READ_TABLES: list[str] = [
 # ----------------------------------------------------------------------
 # Upgrade: apply policies
 # ----------------------------------------------------------------------
+
 
 def _deny_all_sql(table: str) -> str:
     return f"""
@@ -182,6 +183,7 @@ def upgrade() -> None:
 # ----------------------------------------------------------------------
 # Downgrade: drop the policies created here; leave RLS enabled.
 # ----------------------------------------------------------------------
+
 
 def downgrade() -> None:
     for table, _ in OWNER_TABLES:

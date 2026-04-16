@@ -81,11 +81,7 @@ def validate_database_url(url: str) -> list[str]:
         return warnings
 
     is_pooler = host.endswith(POOLER_HOST_FRAGMENT)
-    is_direct = (
-        host.endswith(DIRECT_HOST_FRAGMENT)
-        and not is_pooler
-        and host.startswith("db.")
-    )
+    is_direct = host.endswith(DIRECT_HOST_FRAGMENT) and not is_pooler and host.startswith("db.")
 
     if is_direct:
         if not os.environ.get(ALLOW_DIRECT_ENV):

@@ -68,16 +68,16 @@ def _json_sink(message) -> None:
     extra = {k: v for k, v in record["extra"].items() if k not in _loguru_internal}
 
     payload = {
-        "time":     record["time"].astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
-        "level":    record["level"].name,
-        "message":  record["message"],
-        "logger":   record["name"],
+        "time": record["time"].astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        "level": record["level"].name,
+        "message": record["message"],
+        "logger": record["name"],
         "function": record["function"],
-        "line":     record["line"],
+        "line": record["line"],
         # Process-level context — set once at startup by configure_logging()
-        "env":        extra.pop("env", os.environ.get("ENV", "development")),
-        "app":        extra.pop("app", os.environ.get("APP_PROCESS", "api")),
-        "release":    extra.pop("release", _release()),
+        "env": extra.pop("env", os.environ.get("ENV", "development")),
+        "app": extra.pop("app", os.environ.get("APP_PROCESS", "api")),
+        "release": extra.pop("release", _release()),
         "machine_id": extra.pop("machine_id", os.environ.get("FLY_MACHINE_ID", "")),
     }
 
@@ -85,7 +85,7 @@ def _json_sink(message) -> None:
     if record["exception"] is not None:
         exc_type, exc_value, _ = record["exception"]
         payload["exception"] = {
-            "type":    exc_type.__name__ if exc_type else None,
+            "type": exc_type.__name__ if exc_type else None,
             "message": str(exc_value) if exc_value else None,
         }
 
@@ -112,10 +112,7 @@ def configure_logging() -> None:
     appropriate sink. Call once per process, before any other logging.
     """
     env = os.environ.get("ENV", "development").lower()
-    log_level = os.environ.get("LOG_LEVEL", "").upper() or (
-        "DEBUG"  if env in ("development", "staging")
-        else "INFO"
-    )
+    log_level = os.environ.get("LOG_LEVEL", "").upper() or ("DEBUG" if env in ("development", "staging") else "INFO")
 
     # Remove loguru's default stderr handler so we don't double-emit.
     logger.remove()
@@ -123,19 +120,21 @@ def configure_logging() -> None:
     if env in ("production", "staging"):
         # Bind process-level context once; every subsequent log call
         # inherits these without the caller needing to pass them.
-        logger.configure(extra={
-            "env":        env,
-            "app":        os.environ.get("APP_PROCESS", "api"),
-            "release":    _release(),
-            "machine_id": os.environ.get("FLY_MACHINE_ID", ""),
-        })
+        logger.configure(
+            extra={
+                "env": env,
+                "app": os.environ.get("APP_PROCESS", "api"),
+                "release": _release(),
+                "machine_id": os.environ.get("FLY_MACHINE_ID", ""),
+            }
+        )
         logger.add(
             _json_sink,
             level=log_level,
-            format="{message}",    # _json_sink formats the full record
-            backtrace=False,       # traceback in the `exception` key, not inline
-            diagnose=False,        # don't include local variable values (PII risk)
-            enqueue=False,         # synchronous — keeps line order on stdout
+            format="{message}",  # _json_sink formats the full record
+            backtrace=False,  # traceback in the `exception` key, not inline
+            diagnose=False,  # don't include local variable values (PII risk)
+            enqueue=False,  # synchronous — keeps line order on stdout
         )
     else:
         # Development: pretty, coloured, to stderr.
