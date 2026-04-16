@@ -120,8 +120,7 @@ async def stripe_event_worker_loop() -> None:
 
                 await mark_stripe_event_processed(event_id)
                 logger.info(
-                    f"[stripe-worker] dispatched "
-                    f"event_id={event_id} type={event_type} attempt={attempt_count + 1}"
+                    f"[stripe-worker] dispatched event_id={event_id} type={event_type} attempt={attempt_count + 1}"
                 )
 
         # Heartbeat (Phase 1.6 / T15) — written every tick regardless of

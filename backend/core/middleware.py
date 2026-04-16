@@ -2,6 +2,7 @@ from urllib.parse import urlparse
 
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response
 from loguru import logger
 from slowapi.errors import RateLimitExceeded
@@ -195,9 +196,7 @@ class MetricsGuardMiddleware(BaseHTTPMiddleware):
         # that retrying with a credential would work. 403 is for "I
         # know who you are and I still said no" which isn't the case
         # here: we don't know who the caller is.
-        logger.warning(
-            f"MetricsGuard: denied /metrics scrape from {client_ip}"
-        )
+        logger.warning(f"MetricsGuard: denied /metrics scrape from {client_ip}")
         return JSONResponse(
             status_code=401,
             content={"detail": "Unauthorized"},
@@ -356,10 +355,7 @@ def _validate_production_config():
     elif not sentry_dsn.startswith(("https://", "http://")):
         # Common copy-paste mistake: pasting the Sentry project URL or
         # key fragment instead of the full DSN. Fail loudly.
-        errors.append(
-            "SENTRY_DSN does not look like a DSN URL (should start with "
-            f"https://). Got: {sentry_dsn[:40]}…"
-        )
+        errors.append(f"SENTRY_DSN does not look like a DSN URL (should start with https://). Got: {sentry_dsn[:40]}…")
 
     # 7. /metrics protection (Phase 2.3e / audit T3). The endpoint
     #    leaks internal metric names/values; at minimum it gives an
@@ -452,9 +448,7 @@ def init_middleware(app):
     # both may be unset and the middleware falls through.
     metrics_bearer = (settings.metrics_bearer_token or "").strip()
     metrics_allowlist_raw = (settings.metrics_ip_allowlist or "").strip()
-    metrics_cidrs: tuple[str, ...] = tuple(
-        p.strip() for p in metrics_allowlist_raw.split(",") if p.strip()
-    )
+    metrics_cidrs: tuple[str, ...] = tuple(p.strip() for p in metrics_allowlist_raw.split(",") if p.strip())
     app.add_middleware(
         MetricsGuardMiddleware,
         bearer_token=metrics_bearer,
@@ -519,6 +513,10 @@ def init_middleware(app):
             return response
 
     app.add_middleware(RelativeRedirectMiddleware)
+    # GZip compression — registered last so it wraps all other middleware
+    # and compresses final responses. minimum_size=1000 skips tiny payloads
+    # where compression overhead exceeds savings.
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     # Rate Limiting Middleware
     app.state.limiter = default_limiter

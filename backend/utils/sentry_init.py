@@ -121,12 +121,8 @@ def init_sentry(role: Literal["api", "worker"]) -> None:
 
     environment = (getattr(settings, "ENV", None) or "production").lower()
     release = _resolve_release()
-    traces_rate = _resolve_sample_rate(
-        "SENTRY_TRACES_SAMPLE_RATE", _DEFAULT_TRACES_SAMPLE_RATE
-    )
-    profiles_rate = _resolve_sample_rate(
-        "SENTRY_PROFILES_SAMPLE_RATE", _DEFAULT_PROFILES_SAMPLE_RATE
-    )
+    traces_rate = _resolve_sample_rate("SENTRY_TRACES_SAMPLE_RATE", _DEFAULT_TRACES_SAMPLE_RATE)
+    profiles_rate = _resolve_sample_rate("SENTRY_PROFILES_SAMPLE_RATE", _DEFAULT_PROFILES_SAMPLE_RATE)
 
     sentry_sdk.init(
         dsn=dsn,

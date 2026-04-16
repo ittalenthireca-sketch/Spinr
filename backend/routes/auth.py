@@ -250,9 +250,7 @@ async def verify_otp(request: Request, body: VerifyOTPRequest):
                 "accepted_tos_version": body.accepted_tos_version,
                 "accepted_tos_at": tos_accepted_at,
                 "accepted_privacy_at": (
-                    body.accepted_privacy_at.isoformat()
-                    if body.accepted_privacy_at
-                    else tos_accepted_at
+                    body.accepted_privacy_at.isoformat() if body.accepted_privacy_at else tos_accepted_at
                 ),
             }
             try:

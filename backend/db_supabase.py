@@ -1263,9 +1263,7 @@ async def record_bg_task_heartbeat(
         # on_conflict is required because task_name is the PK — without
         # it PostgREST treats the row as a plain insert and 409s on the
         # second heartbeat.
-        supabase.table("bg_task_heartbeat").upsert(
-            row, on_conflict="task_name"
-        ).execute()
+        supabase.table("bg_task_heartbeat").upsert(row, on_conflict="task_name").execute()
 
     try:
         await run_sync(_fn)
@@ -1286,9 +1284,11 @@ async def fetch_bg_task_heartbeats() -> list[Dict[str, Any]]:
         return []
 
     def _fn():
-        return supabase.table("bg_task_heartbeat").select(
-            "task_name,last_run_at,last_status,last_error,expected_interval_seconds"
-        ).execute()
+        return (
+            supabase.table("bg_task_heartbeat")
+            .select("task_name,last_run_at,last_status,last_error,expected_interval_seconds")
+            .execute()
+        )
 
     try:
         resp = await run_sync(_fn)
@@ -1371,13 +1371,7 @@ async def count_active_rides_by_status() -> Dict[str, int]:
     for status in _ACTIVE_RIDE_STATUSES:
 
         def _fn(_status: str = status):
-            return (
-                supabase.table("rides")
-                .select("id", count="exact")
-                .eq("status", _status)
-                .limit(1)
-                .execute()
-            )
+            return supabase.table("rides").select("id", count="exact").eq("status", _status).limit(1).execute()
 
         try:
             resp = await run_sync(_fn)
@@ -1395,9 +1389,8 @@ async def count_active_rides_by_status() -> Dict[str, int]:
 # successfully created. The lookup is scoped by (key, rider_id) so one
 # rider's collision can never expose another rider's ride snapshot.
 
-async def claim_ride_idempotency_key(
-    key: str, rider_id: str
-) -> tuple[bool, Optional[Dict[str, Any]]]:
+
+async def claim_ride_idempotency_key(key: str, rider_id: str) -> tuple[bool, Optional[Dict[str, Any]]]:
     """Atomically claim an idempotency key for this rider.
 
     Returns:
@@ -1420,9 +1413,7 @@ async def claim_ride_idempotency_key(
 
     def _insert() -> tuple[bool, Optional[Dict[str, Any]]]:
         try:
-            supabase.table("ride_idempotency_keys").insert(
-                {"key": key, "rider_id": rider_id}
-            ).execute()
+            supabase.table("ride_idempotency_keys").insert({"key": key, "rider_id": rider_id}).execute()
             return (True, None)
         except Exception as e:  # noqa: BLE001
             msg = str(e).lower()
@@ -1446,9 +1437,7 @@ async def claim_ride_idempotency_key(
     return await run_sync(_insert)
 
 
-async def record_ride_idempotency_response(
-    key: str, rider_id: str, ride_id: str, response: Dict[str, Any]
-) -> None:
+async def record_ride_idempotency_response(key: str, rider_id: str, ride_id: str, response: Dict[str, Any]) -> None:
     """Stamp the ride_id + response snapshot onto a previously-claimed key.
 
     Best-effort: a write failure here is non-fatal. Worst case a client
@@ -1464,16 +1453,14 @@ async def record_ride_idempotency_response(
     snapshot = _serialize_for_api(response)
 
     def _fn():
-        supabase.table("ride_idempotency_keys").update(
-            {"ride_id": ride_id, "response": snapshot}
-        ).eq("key", key).eq("rider_id", rider_id).execute()
+        supabase.table("ride_idempotency_keys").update({"ride_id": ride_id, "response": snapshot}).eq("key", key).eq(
+            "rider_id", rider_id
+        ).execute()
 
     try:
         await run_sync(_fn)
     except Exception as e:  # noqa: BLE001
-        logger.warning(
-            f"Failed to record idempotency response for key={key[:8]}…: {e}"
-        )
+        logger.warning(f"Failed to record idempotency response for key={key[:8]}…: {e}")
 
 
 async def delete_expired_ride_idempotency_keys(older_than_hours: int = 24) -> int:
@@ -1489,12 +1476,7 @@ async def delete_expired_ride_idempotency_keys(older_than_hours: int = 24) -> in
     cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
 
     def _fn():
-        return (
-            supabase.table("ride_idempotency_keys")
-            .delete()
-            .lt("created_at", cutoff.isoformat())
-            .execute()
-        )
+        return supabase.table("ride_idempotency_keys").delete().lt("created_at", cutoff.isoformat()).execute()
 
     try:
         resp = await run_sync(_fn)
