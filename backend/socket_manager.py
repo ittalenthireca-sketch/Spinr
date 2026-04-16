@@ -1,8 +1,14 @@
+import os
 from datetime import datetime
 from typing import Dict, Optional
 
 from fastapi import WebSocket
 from loguru import logger
+
+# Hard cap on simultaneous WebSocket connections per process.
+# Tune via WS_MAX_CONNECTIONS env var; default 1000 is conservative for
+# a single Fly machine (each connection holds ~4–8 KB of kernel buffer).
+_WS_MAX_CONNECTIONS = int(os.environ.get("WS_MAX_CONNECTIONS", "1000"))
 
 try:
     from .logging_utils import diag_logger  # type: ignore
@@ -31,6 +37,13 @@ class ConnectionManager:
 
     async def connect(self, websocket: WebSocket, client_id: str, role: Optional[str] = None):
         # WebSocket is already accepted in the endpoint handler
+        if len(self.active_connections) >= _WS_MAX_CONNECTIONS:
+            await websocket.close(code=1008, reason="Server at capacity")
+            logger.warning(
+                f"WebSocket connection rejected: at capacity ({_WS_MAX_CONNECTIONS}). "
+                f"Set WS_MAX_CONNECTIONS env var to raise the limit."
+            )
+            return
         self.active_connections[client_id] = websocket
         # Fall back to parsing the connection_key prefix when the caller
         # didn't supply a role — keeps the legacy signature working for

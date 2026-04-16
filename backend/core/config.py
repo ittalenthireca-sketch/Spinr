@@ -52,10 +52,10 @@ class Settings(BaseSettings):
     # fresh deploy is not wide-open. Override in .env for staging/prod.
     # Set to "*" ONLY for local development — wildcard is rejected in production
     # (see core/middleware.init_middleware).
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8081,http://localhost:19006"
+    ALLOWED_ORIGINS: str = ""  # REQUIRED in production — set via environment variable
 
     # Admin credentials — no defaults; app refuses to start if unset in production
-    ADMIN_EMAIL: str = "admin@spinr.ca"
+    ADMIN_EMAIL: str = ""  # REQUIRED in production — set via environment variable
     ADMIN_PASSWORD: str
 
     # Rate limiting

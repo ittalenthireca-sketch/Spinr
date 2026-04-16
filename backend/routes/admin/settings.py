@@ -43,10 +43,25 @@ class SettingsUpdateRequest(BaseModel):
     privacy_policy_text: Optional[str] = None
 
 
+
+# Keys that must never be returned to the browser, even to admins.
+# Exposure would allow credential harvesting via XSS or a rogue admin account.
+_SENSITIVE_KEYS: frozenset[str] = frozenset({
+    "stripe_secret_key",
+    "stripe_webhook_secret",
+    "supabase_service_role_key",
+    "jwt_secret",
+    "twilio_auth_token",
+    "firebase_server_key",
+    "sendgrid_api_key",
+})
+
+
 @router.get("/settings")
 async def admin_get_settings():
-    """Get all settings (normalized single app_settings row as dict)."""
-    return await get_app_settings()
+    """Get all settings, with sensitive credential keys redacted."""
+    raw = await get_app_settings()
+    return {k: v for k, v in raw.items() if k not in _SENSITIVE_KEYS}
 
 
 @router.put("/settings")

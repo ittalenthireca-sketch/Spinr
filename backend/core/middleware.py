@@ -2,6 +2,7 @@ from urllib.parse import urlparse
 
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response
 from loguru import logger
 from slowapi.errors import RateLimitExceeded
@@ -519,6 +520,10 @@ def init_middleware(app):
             return response
 
     app.add_middleware(RelativeRedirectMiddleware)
+    # GZip compression — registered last so it wraps all other middleware
+    # and compresses final responses. minimum_size=1000 skips tiny payloads
+    # where compression overhead exceeds savings.
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     # Rate Limiting Middleware
     app.state.limiter = default_limiter
