@@ -93,7 +93,6 @@ from typing import Sequence, Union
 
 from alembic import op
 
-
 # revision identifiers, used by Alembic.
 revision: str = "0009_postgis_geography"
 down_revision: Union[str, Sequence[str], None] = "0008_gps_breadcrumbs_partition"

@@ -47,7 +47,7 @@ increasing verbosity on a live production machine without a redeploy.
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import timezone
 
 from loguru import logger
 

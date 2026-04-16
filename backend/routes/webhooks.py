@@ -2,13 +2,9 @@ from fastapi import APIRouter, HTTPException, Request
 
 try:
     from ..db_supabase import claim_stripe_event
-    from .. import db_supabase
-    from ..features import send_push_notification
     from ..settings_loader import get_app_settings
 except ImportError:
     from db_supabase import claim_stripe_event
-    import db_supabase
-    from features import send_push_notification
     from settings_loader import get_app_settings
 import logging
 
