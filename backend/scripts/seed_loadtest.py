@@ -41,7 +41,6 @@ Safety guards
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import uuid
@@ -55,8 +54,9 @@ import jwt
 _BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _BACKEND)
 
-from core.config import settings  # noqa: E402 — after path patch
 from supabase import create_client  # noqa: E402
+
+from core.config import settings  # noqa: E402 — after path patch
 
 # ---------------------------------------------------------------------------
 # Safety gate
@@ -85,7 +85,7 @@ def _mint_jwt(user_id: str, phone: str) -> str:
         "iat": now,
         "exp": now + timedelta(hours=TOKEN_TTL_HOURS),
         "token_version": 0,
-        "_loadtest": True,   # marker so we can identify these in logs
+        "_loadtest": True,  # marker so we can identify these in logs
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
 
@@ -154,11 +154,13 @@ def purge(token_file: str) -> None:
     for token in tokens:
         try:
             payload = jwt.decode(
-                token, settings.JWT_SECRET, algorithms=["HS256"],
-                options={"verify_exp": False},   # tokens may be expired by purge time
+                token,
+                settings.JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_exp": False},  # tokens may be expired by purge time
             )
             if not payload.get("_loadtest"):
-                print(f"  [skip] token not marked _loadtest — refusing to delete", file=sys.stderr)
+                print("  [skip] token not marked _loadtest — refusing to delete", file=sys.stderr)
                 continue
             user_ids.append(payload["user_id"])
         except Exception as exc:
@@ -183,17 +185,21 @@ def main() -> None:
         description="Seed or purge load-test rider accounts (staging only).",
     )
     parser.add_argument(
-        "--riders", type=int, default=10,
+        "--riders",
+        type=int,
+        default=10,
         help="Number of rider accounts to create (default: 10).",
     )
     parser.add_argument(
-        "--output", "-o", default=None,
+        "--output",
+        "-o",
+        default=None,
         help="Write JWTs to this file (one per line). Omit to print to stdout.",
     )
     parser.add_argument(
-        "--purge", action="store_true",
-        help="Delete previously seeded accounts. Requires --output pointing at "
-             "the file produced by the seed run.",
+        "--purge",
+        action="store_true",
+        help="Delete previously seeded accounts. Requires --output pointing at the file produced by the seed run.",
     )
     args = parser.parse_args()
 

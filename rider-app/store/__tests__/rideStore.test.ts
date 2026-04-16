@@ -166,7 +166,7 @@ describe('rideStore — ride lifecycle', () => {
     expect(mockApi.post).toHaveBeenCalledWith('/rides', expect.objectContaining({
       vehicle_type_id: 'vt-1',
       payment_method: 'card',
-    }));
+    }), expect.anything());
     expect(useRideStore.getState().currentRide).toEqual(createdRide);
     expect(result).toEqual(createdRide);
   });

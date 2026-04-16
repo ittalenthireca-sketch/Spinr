@@ -27,9 +27,10 @@ from datetime import datetime, timedelta, timezone
 from loguru import logger
 
 try:
+    from utils.bg_heartbeat import record_bg_task_heartbeat
+
     from db_supabase import run_sync
     from supabase_client import supabase
-    from utils.bg_heartbeat import record_bg_task_heartbeat
 except ImportError:
     from ..db_supabase import run_sync  # type: ignore
     from ..supabase_client import supabase  # type: ignore
@@ -47,7 +48,7 @@ _EXPIRED_REFRESH_TOKEN_DAYS = 7
 _RIDE_IDEMPOTENCY_HOURS = 24
 
 BATCH_SIZE = 500
-LOOP_INTERVAL_SECONDS = 24 * 60 * 60   # run once per day
+LOOP_INTERVAL_SECONDS = 24 * 60 * 60  # run once per day
 
 
 def _now_utc() -> datetime:
@@ -75,16 +76,11 @@ async def _delete_batch(
         if dry_run:
             # Count instead of delete so we can report what *would* happen.
             result = await run_sync(
-                lambda: supabase.table(table)
-                    .select("id", count="exact")
-                    .lt(column, cutoff)
-                    .limit(BATCH_SIZE)
-                    .execute()
+                lambda: supabase.table(table).select("id", count="exact").lt(column, cutoff).limit(BATCH_SIZE).execute()
             )
             count = result.count or 0
             logger.info(
-                f"[dry_run] data_retention: would delete up to {count} rows "
-                f"from {table} where {column} < {cutoff}"
+                f"[dry_run] data_retention: would delete up to {count} rows from {table} where {column} < {cutoff}"
             )
             return 0
 
@@ -98,8 +94,7 @@ async def _delete_batch(
         if deleted:
             logger.info(
                 f"data_retention: deleted {deleted} rows from {table} "
-                f"where {column} < {cutoff}"
-                + (f" (extra_filter={extra_filter})" if extra_filter else "")
+                f"where {column} < {cutoff}" + (f" (extra_filter={extra_filter})" if extra_filter else "")
             )
         return deleted
     except Exception as exc:
@@ -205,7 +200,6 @@ async def data_retention_loop() -> None:
             next_run += timedelta(days=1)
         sleep_seconds = (next_run - now).total_seconds()
         logger.info(
-            f"data_retention_loop: sleeping {sleep_seconds/3600:.1f}h until next run "
-            f"at {next_run.isoformat()}"
+            f"data_retention_loop: sleeping {sleep_seconds / 3600:.1f}h until next run at {next_run.isoformat()}"
         )
         await asyncio.sleep(sleep_seconds)
