@@ -7,6 +7,7 @@ import { StripeProvider } from '@stripe/stripe-react-native';
 import { useFonts, PlusJakartaSans_400Regular, PlusJakartaSans_500Medium, PlusJakartaSans_600SemiBold, PlusJakartaSans_700Bold } from '@expo-google-fonts/plus-jakarta-sans';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '@shared/store/authStore';
 import { useLocationStore } from '@shared/store/locationStore';
 import { useRideStore } from '../store/rideStore';
@@ -274,6 +275,25 @@ export default function RootLayout() {
     };
   }, [isAuthInitialized]);
 
+  // ── Network connectivity monitoring for offline sync ──
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      const wasOffline = isOffline;
+      const isNowOffline = !state.isConnected || !state.isInternetReachable;
+
+      setIsOffline(isNowOffline);
+
+      // When coming back online, sync any queued offline requests
+      if (wasOffline && !isNowOffline && isAuthInitialized) {
+        useRideStore.getState().syncOfflineRequests().catch(error => {
+          console.error('Failed to sync offline requests:', error);
+        });
+      }
+    });
+
+    return unsubscribe;
+  }, [isAuthInitialized, isOffline]);
+
   if (!fontsLoaded || fontError || !isAuthInitialized || !isLocationInitialized) {
     return (
       <ErrorBoundary>
@@ -287,7 +307,7 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
-      <RootLayoutInner isOffline={isOffline} setIsOffline={setIsOffline} />
+      <RootLayoutInner isOffline={isOffline} setIsOffline={setIsOffline} stripePublishableKey={stripePublishableKey} />
     </ThemeProvider>
   );
 }
@@ -295,9 +315,11 @@ export default function RootLayout() {
 function RootLayoutInner({
   isOffline,
   setIsOffline,
+  stripePublishableKey,
 }: {
   isOffline: boolean;
   setIsOffline: (v: boolean) => void;
+  stripePublishableKey: string | null;
 }) {
   const { isDark } = useTheme();
   return (

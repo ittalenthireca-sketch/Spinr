@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -215,7 +217,7 @@ _MIN_JWT_SECRET_LENGTH = 32
 # in as the super-admin. These are the defaults shipped in
 # core/config.py; production deploys must set real values via env vars.
 _INSECURE_ADMIN_EMAILS = {"admin@spinr.ca", "admin@example.com"}
-_INSECURE_ADMIN_PASSWORDS = {"admin123", "replace-me", "changeme", "password"}
+_INSECURE_ADMIN_PASSWORDS = {"admin123", "replace-me", "changeme", "password", "Admin12345", "TempPass123!"}
 
 # Supabase service-role keys are signed JWTs (ES256/HS256), ~220 chars,
 # always starting with "eyJ" (base64-encoded JSON header). The .env.example
@@ -495,6 +497,28 @@ def init_middleware(app):
         _apply_security_headers(response, request.url.path, enable_hsts=is_production)
 
         return response
+
+    # Relative-redirect middleware — when FastAPI issues a 307 trailing-slash
+    # redirect the Location header contains an absolute backend URL
+    # (e.g. http://127.0.0.1:8400/api/admin/foo/). If the Next.js rewrite proxy
+    # forwards that to the browser, the browser follows it directly to the
+    # backend, bypassing the proxy and triggering CORS + auth-header loss.
+    # Stripping the scheme+host makes Location relative so the browser's
+    # follow-up request still goes through Next.js.
+    class RelativeRedirectMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response = await call_next(request)
+            if response.status_code in (301, 302, 307, 308):
+                location = response.headers.get("location", "")
+                if location.startswith("http"):
+                    parsed = urlparse(location)
+                    relative = parsed.path
+                    if parsed.query:
+                        relative += f"?{parsed.query}"
+                    response.headers["location"] = relative
+            return response
+
+    app.add_middleware(RelativeRedirectMiddleware)
 
     # Rate Limiting Middleware
     app.state.limiter = default_limiter

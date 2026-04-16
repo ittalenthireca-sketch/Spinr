@@ -152,6 +152,7 @@ interface RideState {
   triggerEmergency: (rideId: string, latitude?: number, longitude?: number) => Promise<void>;
   addRecentSearch: (location: Location) => void;
   loadRecentSearches: () => Promise<void>;
+  syncOfflineRequests: () => Promise<void>;
   clearRecentSearches: () => void;
   setScheduledTime: (time: Date | null) => void;
   fetchScheduledRides: () => Promise<void>;
@@ -275,6 +276,46 @@ export const useRideStore = create<RideState>((set, get) => ({
 
   applyPromo: (promo) => set({ appliedPromo: promo }),
 
+  // Sync offline queued requests when back online
+  syncOfflineRequests: async () => {
+    try {
+      const queueStr = await AsyncStorage.getItem('offline_queue');
+      if (!queueStr) return;
+
+      const queue = JSON.parse(queueStr);
+      if (queue.length === 0) return;
+
+      const successfulSyncs: string[] = [];
+
+      for (const request of queue) {
+        try {
+          if (request.type === 'create_ride') {
+            await api.post('/rides', request.data);
+            successfulSyncs.push(request.id);
+          }
+          // Add other request types here as needed
+        } catch (error) {
+          // Increment retry count, remove after max retries
+          request.retryCount = (request.retryCount || 0) + 1;
+          if (request.retryCount >= 3) {
+            successfulSyncs.push(request.id); // Remove failed requests
+          }
+        }
+      }
+
+      // Remove successfully synced requests
+      const updatedQueue = queue.filter(req => !successfulSyncs.includes(req.id));
+      await AsyncStorage.setItem('offline_queue', JSON.stringify(updatedQueue));
+
+      if (successfulSyncs.length > 0) {
+        // Could emit an event or show notification that offline requests were synced
+        console.log(`Synced ${successfulSyncs.length} offline requests`);
+      }
+    } catch (error) {
+      console.error('Failed to sync offline requests:', error);
+    }
+  },
+
   createRide: async (paymentMethod) => {
     const { pickup, dropoff, selectedVehicle, stops, scheduledTime } = get();
     if (!pickup || !dropoff || !selectedVehicle) {
@@ -293,6 +334,7 @@ export const useRideStore = create<RideState>((set, get) => ({
         dropoff_lng: dropoff.lng,
         stops: stops,
         payment_method: paymentMethod,
+        created_at: new Date().toISOString(),
       };
 
       if (scheduledTime) {

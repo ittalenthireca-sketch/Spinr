@@ -9,11 +9,27 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 try:
-    from ...core.config import settings
     from ... import db_supabase
+    from ...core.config import settings
+    from ...utils.password import hash_password, verify_password
+    from ...utils.refresh_tokens import (
+        issue_refresh_token,
+        lookup_refresh_token,
+        revoke_all_for_user,
+        revoke_refresh_token,
+    )
 except ImportError:
-    from core.config import settings
     import db_supabase
+    from core.config import settings
+    from utils.password import hash_password, verify_password
+    from utils.refresh_tokens import (
+        issue_refresh_token,
+        lookup_refresh_token,
+        revoke_all_for_user,
+        revoke_refresh_token,
+    )
+
+db = db_supabase  # legacy alias
 
 logger = logging.getLogger(__name__)
 
@@ -194,14 +210,18 @@ async def admin_login(request: Request, body: LoginRequest):
         }
 
     # 2. Staff member
-    staff = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("admin_staff", {"email": request.email.lower()}, limit=1))
+    staff = (lambda _r: _r[0] if _r else None)(
+        await db_supabase.get_rows("admin_staff", {"email": body.email.lower()}, limit=1)
+    )
     if staff:
         stored_hash = staff.get("password_hash", "") or ""
         ok, needs_upgrade = verify_password(body.password, stored_hash)
         if ok:
             if not staff.get("is_active", True):
                 raise HTTPException(status_code=403, detail="Account is deactivated")
-            await db_supabase.update_one("admin_staff", {"id": staff["id"]}, {"last_login": datetime.utcnow().isoformat()})
+            await db_supabase.update_one(
+                "admin_staff", {"id": staff["id"]}, {"last_login": datetime.utcnow().isoformat()}
+            )
             modules = staff.get("modules", ["dashboard"])
             token, access_expires_at = _mint_admin_access_token(
                 user_id=staff["id"],
@@ -275,7 +295,7 @@ async def admin_refresh(request: Request, body: RefreshRequest):
         ]
         token_version = 0
     else:
-        staff = await db.admin_staff.find_one({"id": user_id})
+        staff = await db.find_one("admin_staff", {"id": user_id})
         if not staff or not staff.get("is_active", True):
             raise HTTPException(status_code=401, detail="Invalid refresh token")
         email = staff["email"]
@@ -358,12 +378,12 @@ async def admin_logout_all(request: Request, authorization: Optional[str] = Head
             detail="Super admin cannot force-logout here. Rotate ADMIN_PASSWORD in the environment to kill all super-admin sessions.",
         )
 
-    staff = await db.admin_staff.find_one({"id": user_id})
+    staff = await db.find_one("admin_staff", {"id": user_id})
     if not staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
 
     new_version = int(staff.get("token_version") or 0) + 1
-    await db.admin_staff.update_one({"id": user_id}, {"$set": {"token_version": new_version}})
+    await db.update_one("admin_staff", {"id": user_id}, {"$set": {"token_version": new_version}})
     revoked = await revoke_all_for_user(user_id)
     logger.info(f"admin logout-all: user={user_id} token_version→{new_version} revoked_refresh={revoked}")
     return {"success": True, "revoked_refresh_tokens": revoked}
@@ -410,7 +430,7 @@ async def change_password(request: Request, body: ChangePasswordRequest, authori
             detail="Super admin password cannot be changed here. Update ADMIN_PASSWORD in the environment.",
         )
 
-    staff = await db.admin_staff.find_one({"id": user_id})
+    staff = await db.find_one("admin_staff", {"id": user_id})
     if not staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
 
@@ -425,7 +445,8 @@ async def change_password(request: Request, body: ChangePasswordRequest, authori
 
     # Hash + store.
     new_hash = hash_password(body.new_password)
-    await db.admin_staff.update_one(
+    await db.update_one(
+        "admin_staff",
         {"id": user_id},
         {"$set": {"password_hash": new_hash}},
     )

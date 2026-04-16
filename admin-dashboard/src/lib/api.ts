@@ -1,6 +1,8 @@
 // Use relative URL to go through Next.js proxy (avoids CORS and IPv6 issues)
-// For production, set NEXT_PUBLIC_API_URL to your backend URL
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// For production, set NEXT_PUBLIC_API_URL to your backend URL.
+// Default is "" (empty) so /api/* requests route through next.config.ts rewrites
+// → http://127.0.0.1:8001. Never talk directly to the backend from the browser.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 // Import Zustand store for token management
 import { useAuthStore } from "@/store/authStore";
@@ -22,12 +24,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         }
 
         if (res.status === 401) {
-            // Clear auth state via Zustand
-            useAuthStore.getState().logout();
-            if (typeof window !== "undefined") {
-                window.location.href = "/login";
+            // For the login endpoint, fall through to the !res.ok handler so
+            // "Invalid credentials" is shown to the user rather than "Unauthorized".
+            if (path !== "/api/admin/auth/login") {
+                useAuthStore.getState().logout();
+                if (typeof window !== "undefined") {
+                    window.location.href = "/login";
+                }
+                throw new Error("Unauthorized");
             }
-            throw new Error("Unauthorized");
         }
 
         if (!res.ok) {
@@ -146,7 +151,7 @@ export const getRideInvoice = (rideId: string) =>
 export const getRideRouteMapDataUrl = async (rideId: string): Promise<string | null> => {
     const token = useAuthStore.getState().token;
     try {
-        const res = await fetch(`${API_BASE}/api/admin/rides/${rideId}/route-map.png`, {
+        const res = await fetch(`/api/admin/rides/${rideId}/route-map.png`, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (!res.ok) return null;
@@ -723,3 +728,9 @@ export const resolveDispute = (id: string, data: { resolution: string; refund_am
 /* ── Live Ride Monitoring ───────────────── */
 export const getActiveRides = () =>
     request<any>("/api/admin/rides/active");
+
+export const getMonitoringDrivers = () =>
+    request<any[]>("/api/admin/monitoring/drivers");
+
+export const getMonitoringRides = () =>
+    request<any[]>("/api/admin/monitoring/rides");

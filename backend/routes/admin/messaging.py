@@ -10,6 +10,8 @@ try:
 except ImportError:
     import db_supabase
 
+db = db_supabase  # legacy alias
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -64,9 +66,9 @@ async def admin_send_cloud_message(payload: Dict[str, Any]):
         if audience in ("particular_customer", "particular_driver"):
             target_users = [{"id": uid} for uid in particular_ids]
         elif audience == "customers":
-            target_users = await db.users.find({"role": "rider"}).to_list(10000)
+            target_users = await db.get_rows("users", {"role": "rider"}, limit=10000)
         elif audience == "drivers":
-            target_users = await db.users.find({"role": "driver"}).to_list(10000)
+            target_users = await db.get_rows("users", {"role": "driver"}, limit=10000)
 
         for u in target_users:
             uid = u.get("id") if isinstance(u, dict) else u
@@ -168,7 +170,9 @@ async def admin_get_cloud_message_stats():
 @router.delete("/cloud-messaging/{message_id}")
 async def admin_delete_cloud_message(message_id: str):
     """Cancel/delete a scheduled cloud message."""
-    existing = (lambda _r: _r[0] if _r else None)(await db_supabase.get_rows("cloud_messages", {"id": message_id}, limit=1))
+    existing = (lambda _r: _r[0] if _r else None)(
+        await db_supabase.get_rows("cloud_messages", {"id": message_id}, limit=1)
+    )
     if not existing:
         raise HTTPException(status_code=404, detail="Message not found")
 

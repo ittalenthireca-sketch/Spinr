@@ -37,6 +37,7 @@ export default function ProfileScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [docRequirements, setDocRequirements] = useState<Array<{id: string; name: string; description?: string}>>([]);
+  const [driverDocs, setDriverDocs] = useState<Array<any>>([]);
 
   // Edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -85,6 +86,11 @@ export default function ProfileScreen() {
             const reqRes = await api.get('/drivers/requirements');
             if (!cancelled && reqRes.data) setDocRequirements(reqRes.data);
           } catch (reqErr) {}
+
+          try {
+            const docsRes = await api.get('/drivers/documents');
+            if (!cancelled && docsRes.data) setDriverDocs(docsRes.data);
+          } catch (docsErr) {}
         } finally {
           if (!cancelled) setIsRefreshing(false);
         }
@@ -390,11 +396,36 @@ export default function ProfileScreen() {
                     n.includes('background') ? 'document-text-outline' :
                     n.includes('inspection') ? 'car-sport-outline' : 'document-outline';
 
+                // Find the most recent non-superseded document for this requirement
+                const matchedDoc = driverDocs
+                    .filter(d => d.status !== 'superseded')
+                    .find(d =>
+                        d.requirement_key === req.id ||
+                        d.requirement_id === req.id ||
+                        (d.document_type || '').toLowerCase() === req.name.toLowerCase()
+                    );
+                const docStatus = matchedDoc?.status; // 'pending' | 'approved' | 'rejected' | undefined
+
                 const expiry = expiryKey ? driverData?.[expiryKey] : null;
                 const isExpired = expiry ? new Date(expiry) < new Date() : false;
                 const expiresIn = expiry ? Math.ceil((new Date(expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
                 const isValid = expiry && !isExpired;
                 const isExpiringSoon = expiresIn !== null && expiresIn > 0 && expiresIn < 30;
+
+                const iconColor =
+                    isExpired ? COLORS.danger :
+                    isValid ? COLORS.success :
+                    docStatus === 'approved' ? COLORS.success :
+                    docStatus === 'pending' ? COLORS.warning :
+                    docStatus === 'rejected' ? COLORS.danger :
+                    COLORS.textDim;
+
+                const iconBg =
+                    isExpired ? 'rgba(239, 68, 68, 0.1)' :
+                    (isValid || docStatus === 'approved') ? 'rgba(16, 185, 129, 0.1)' :
+                    docStatus === 'pending' ? 'rgba(245, 158, 11, 0.1)' :
+                    docStatus === 'rejected' ? 'rgba(239, 68, 68, 0.1)' :
+                    '#F9FAFB';
 
                 return (
                     <React.Fragment key={req.id}>
@@ -418,6 +449,18 @@ export default function ProfileScreen() {
                                         {isExpired ? 'EXPIRED' : isExpiringSoon ? `Exp in ${expiresIn}d` : 'VALID'}
                                     </Text>
                                 </View>
+                            </View>
+                        ) : docStatus === 'approved' ? (
+                            <View style={[styles.docStatusBadge, {backgroundColor: COLORS.success, marginTop: 2}]}>
+                                <Text style={styles.docStatusText}>APPROVED</Text>
+                            </View>
+                        ) : docStatus === 'pending' ? (
+                            <View style={[styles.docStatusBadge, {backgroundColor: COLORS.warning, marginTop: 2}]}>
+                                <Text style={styles.docStatusText}>PENDING REVIEW</Text>
+                            </View>
+                        ) : docStatus === 'rejected' ? (
+                            <View style={[styles.docStatusBadge, {backgroundColor: COLORS.danger, marginTop: 2}]}>
+                                <Text style={styles.docStatusText}>REJECTED</Text>
                             </View>
                         ) : (
                             <Text style={styles.cardValueDim}>Not submitted</Text>

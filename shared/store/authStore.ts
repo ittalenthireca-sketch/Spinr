@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { auth } from '../config/firebaseConfig';
-import { PhoneAuthProvider, signInWithCredential, signOut, User as FirebaseUser } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
 import api, { setInMemoryToken } from '../api/client';
 import { appCache, CACHE_KEYS, CACHE_CONFIG } from '../cache';
 
@@ -354,7 +354,8 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
     // ── No valid stored token ──
     // Check Firebase as a secondary auth source (only useful when firebase
     // phone-auth is actively configured and the user signed in via it).
-    if (typeof auth.onAuthStateChanged === 'function') {
+    const firebaseAuthInstance = typeof auth.onAuthStateChanged === 'function' ? auth : null;
+    if (firebaseAuthInstance) {
       // Safety timeout: if Firebase doesn't respond within 4s, force init
       setTimeout(() => {
         const state = get();
@@ -364,7 +365,7 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
         }
       }, 4000);
 
-      auth.onAuthStateChanged(async (firebaseUser: any) => {
+      firebaseAuthInstance.onAuthStateChanged(async (firebaseUser: any) => {
         if (get().isInitialized) return; // Already resolved by timeout or previous call
 
         if (firebaseUser) {
