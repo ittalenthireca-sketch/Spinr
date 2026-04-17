@@ -24,9 +24,12 @@ name: synthetic-health
 
 on:
   schedule:
-    # GitHub cron runs on UTC. Granularity is ~5 min; */5 is the
-    # floor. Don't expect sub-minute precision.
+    # health-shallow + health-deep: every 5 min
     - cron: "*/5 * * * *"
+    # rider-smoke-flow: every 15 min (lighter synthetic)
+    - cron: "*/15 * * * *"
+    # k6-latency-synthetic: every 30 min (load probe)
+    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       target:
@@ -123,7 +126,7 @@ jobs:
     # Run less often (GH cron has no per-job schedule so we gate via
     # the minute, and even the 5-min granularity makes 15-min
     # intervals approximate).
-    if: "${{ (github.event_name == 'schedule' && github.run_number % 3 == 0) || github.event_name == 'workflow_dispatch' }}"
+    if: "${{ github.event.schedule == '*/15 * * * *' || github.event_name == 'workflow_dispatch' }}"
     steps:
       - name: POST /rides/estimate against staging
         shell: bash
@@ -172,7 +175,7 @@ jobs:
   k6-latency-synthetic:
     name: "k6 latency synthetic (smoke scenario)"
     runs-on: ubuntu-latest
-    if: "${{ (github.event_name == 'schedule' && github.run_number % 6 == 0) || github.event_name == 'workflow_dispatch' }}"
+    if: "${{ github.event.schedule == '*/30 * * * *' || github.event_name == 'workflow_dispatch' }}"
     steps:
       - uses: actions/checkout@v4
 
