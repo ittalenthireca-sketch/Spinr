@@ -65,8 +65,10 @@ def make_mock_db():
 
 def _find_one_dispatch(**table_returns):
     """Return an AsyncMock that dispatches find_one calls by table name."""
+
     def _dispatch(table, *args, **kwargs):
         return table_returns.get(table)
+
     return AsyncMock(side_effect=_dispatch)
 
 
