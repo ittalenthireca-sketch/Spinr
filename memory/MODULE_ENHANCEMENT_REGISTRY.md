@@ -383,3 +383,122 @@ This document is **living**. When an item ships:
 Re-catalog cadence: **monthly** until first production launch, then
 **quarterly** aligned with the prod audit cycle.
 
+---
+
+## 6. Reconciliation with existing research artifacts
+
+Added **2026-04-17** after an OODA pass against the prior-work artifacts
+the registry originally only cross-referenced. Several sections above
+were written without consulting the `10_COMPLETION_REPORT.md` and
+therefore flagged items as gaps that have already shipped. This
+section records the reconciliation, with **spot-checked evidence**
+from the actual files rather than relying on the completion report's
+prose.
+
+### 6.1 Artifacts consulted
+
+| Artifact | Location | Pages read | Relevance |
+|---|---|---|---|
+| Production readiness audit — INDEX | `docs/audit/production-readiness-2026-04/00_INDEX.md` | full | Top-10 blockers, scope |
+| Roadmap & launch checklist | `docs/audit/production-readiness-2026-04/09_ROADMAP_CHECKLIST.md` | p.1–100 | Phase 0–4 status with commit SHAs |
+| Completion report | `docs/audit/production-readiness-2026-04/10_COMPLETION_REPORT.md` | p.1–100 | 92 findings, 90 resolved, 2 deferred |
+| Master roadmap (kilo) | `.kilo/plans/1776144706168-quick-moon.md` | p.1–80 | Pre-audit gap analysis — now superseded |
+| Stale agent review snapshots | `code_review_report_*.json` (×8) | 2026-03-26 | **Pre-audit state** — superseded by completion report; safe to delete |
+| Hardcoded values registry | `memory/HARDCODED_VALUES_REGISTRY.md` | full | Secret + constant companion |
+
+**Artifacts discovered but missing:**
+- `docs/audit/production-readiness-2026-04/01_…md` through `08_…md`
+  — the 10-doc bundle INDEX references only has 3 files on disk
+  (INDEX, ROADMAP, COMPLETION). The topic-specific audit docs were
+  either never committed or removed during cleanup. INDEX should
+  be corrected to match.
+- `graphify-out/` — referenced by `CLAUDE.md`, never generated.
+
+### 6.2 Registry corrections (items already ✅ shipped)
+
+Spot-checked against actual files, not just the completion report's claims.
+
+| Registry § | Row | Audit status | Verified in file | Correction |
+|---|---|---|---|---|
+| 1.3 | admin-dashboard has no i18n | ✅ done (Phase 4.1, `3db92bf`) | `admin-dashboard/messages/en.json`, `fr-CA.json` present | ✅ **Done** — locale files exist; registry row can close. Enhancement becomes: *add `es` + `fr` + backend namespace sync* |
+| 1.1 | `rider-app` missing offline/retry | ✅ done (Phase 4.4, `0717d40`) | Alembic `0007_ride_idempotency`, `Idempotency-Key` header in `rider-app/store/rideStore.ts` | ✅ **Done for rides**. Residual: non-ride endpoints still lack retry. |
+| 1.1 | `rider-app` on Expo SDK 55 upgrade | ✅ done (Phase 4.3, `8ab2529`) | — | ✅ **Done** — registry already assumed SDK 55 |
+| 2.3 | WebSocket fan-out silently degrades | ✅ shipped (Phase 2.1) | `backend/utils/ws_pubsub.py` + `socket_manager.py` | ⚠️ **Partial** — pubsub ships, but fallback still silent per source. Harden fail-fast in prod still open. |
+| 2.3 | Prometheus metrics | ✅ done (Phase 2.3) | `backend/utils/metrics.py` exporter live | ✅ **Done** for liveness; business + dispatch histograms still open |
+| 2.4 | Alembic bootstrap + CI migration check | ✅ done (Phase 0.6) | `backend/alembic/versions/0001_baseline`–`0009_postgis_geography`; CI has `upgrade head --sql` | ✅ **Done** — only residual is reversible downgrades for last 3 migrations |
+| 2.6 | Sentry optional | ✅ mandatory (Phase 2.2) | — | ✅ **Done** — registry stale |
+| 2.7 | Multi-region deploy / backup drill | ✅ done (Phase 4.10 `bd3322d`, 4.8 `0e75ba7`) | `docs/ops/STAGING_PARITY.md` | ✅ **Done** |
+| 3.1 | k6 not in CI | ✅ done (Phase 2.5) | `.github/workflows/ci.yml:538` `Phase 2.5e — k6 smoke` | ✅ **Done** — registry was stale |
+| 3.2 | Grafana 2 panels only | ✅ expanded (Phase 2.3) | `ops/grafana/spinr-overview.json` has **13 panels** (`grep -c "title"`) | ✅ **Done** — residual: rider/driver SLIs + business KPIs still thin |
+| 3.2 | Synthetic probes | ✅ done (Phase 2.6) | `.github/workflows/synthetic-health.yml` | ✅ **Done**; ride-lifecycle synthetic still open |
+| 3.4 | Backup/DR drill missing | ✅ done (Phase 4.8, `0e75ba7`) | — | ✅ **Done** — registry stale |
+| 4.2 | ToS/Privacy empty in DB | ✅ done (Phase 3.3) | — | ✅ **Done** per audit; verify seed seeded in prod DB |
+| 4.2 | Compliance stubs — privacy/PIPEDA | ✅ done (Phase 3.1, 3.2, 3.5) | — | ✅ **Done** — Background-check vendor + fraud still open |
+
+### 6.3 Registry corrections (gaps the audit missed or got wrong)
+
+| Registry § | Row | Audit claim | Verified in file | Reality |
+|---|---|---|---|---|
+| 3.4 | `fly.toml:32 min_machines_running = 0` | ✅ set to 1 (Phase 0.1) | `grep -n "min_machines" fly.toml` → **line 32: `min_machines_running = 0`** | 🔥 **NOT FIXED.** Completion report is wrong. Comment at `fly.toml:28` says "keep min_machines=1 on …" but line 32 is `0`. **Production risk — background loops halt on idle.** |
+| 2.5 | 27 legacy SQL files | — | `ls backend/migrations/*.sql \| wc -l` → **28** | Close enough; registry figure off by 1 — update to 28 |
+| 4.1 | `discovery/` = MongoDB-era | — | `ls discovery/` shows `_layout.tsx`, `app.config.ts`, `babel.config.js`, `schema.sql` | **Wrong characterization.** It's an Expo skeleton + spec docs (`features.md`, `report.md`, `security.md`, `schema.sql`), not MongoDB. Still stale, but for different reason. |
+| 5.1 | 17 MD files at root | — | `ls /home/user/Spinr/*.md \| wc -l` → **15** | Off by 2 |
+| 4.6 | `graphify-out/` missing | — | Confirmed missing | Registry correct |
+| 6.1 | `docs/audit/` 10-doc bundle | — | Only 3 files present (`00_INDEX`, `09_ROADMAP`, `10_COMPLETION`) | **Docs 01–08 referenced in INDEX do not exist on disk.** Either remove references or restore the files. |
+
+### 6.4 Residual gaps (post-reconciliation)
+
+After removing ✅ items, these are the **truly still-open** enhancements
+the registry's priority summary (§5.3) should focus on:
+
+| # | Enhancement | Section | Why still open | Priority |
+|---|---|---|---|---|
+| 1 | **Fix `fly.toml:32 min_machines_running = 0` → 1** | 3.4 | Completion report claims done; **file disagrees** | 🔥 P0 — live prod risk |
+| 2 | Restore or remove `docs/audit/` 01–08 references in INDEX | 6.1 | Broken documentation | 🟠 |
+| 3 | WebSocket multi-machine (deferred P2 from audit §1 summary) | 2.3 | Pubsub exists but horizontal-scale deployment + sticky sessions not finished | 🟠 |
+| 4 | A11y completion on remaining 8 mobile screens (deferred P2) | 1.1, 1.2 | `docs/ux/A11Y_AUDIT.md` tracks; 4/12 screens done, 8 left | 🟠 |
+| 5 | Wire `.maestro/` mobile E2E to CI | 3.6 | Still orphaned per ci.yml grep | 🔥 |
+| 6 | Fix `CLAUDE.md` → `graphify-out/` reference | 4.6, 5.1 | Broken tool instruction | 🔥 |
+| 7 | Harden WS pubsub fail-fast (no silent fallback) | 2.3 | Pubsub ships but degrades silently if Redis URL unset | 🟠 |
+| 8 | Redis caching for read-hot (settings/fares/polygons) | 2.3 | Not addressed in audit phases | 🟠 |
+| 9 | Service-layer thickening (routes → services) | 2.1, 2.2 | Not addressed in audit phases | 🟠 |
+| 10 | RLS policy integration tests (drift detection) | 2.5, 2.6 | Policies closed (Phase 1.2) but no test that breaks on regression | 🔥 |
+| 11 | OpenAPI → TypeScript codegen | 1.3, 1.5, 2.1 | Not addressed in audit phases | 🟠 |
+| 12 | Phone masking (rider ↔ driver) via Twilio Proxy | 1.1, 1.2 | Not addressed in audit phases | 🔥 |
+| 13 | Archive `backend/migrations/` legacy SQL (28 files) | 2.5 | Alembic is canonical; legacy is drift risk | 🟠 |
+| 14 | Background-check vendor integration (Checkr / Certn) | 4.2 | Stub only; audit marked compliance done but vendor integration still open | 🔥 |
+| 15 | Archive `discovery/` (Expo skeleton + legacy specs) | 4.1 | Dormant code path | 🟠 |
+| 16 | Admin dashboard KPI cards + live tile | 1.3 | Not addressed in audit phases | 🟠 |
+| 17 | Dedupe JWT_SECRET definitions in `backend/.env.example` | `HARDCODED_VALUES_REGISTRY.md §8 #7` | Cheap post-testing cleanup | 🟡 |
+| 18 | Rotate Supabase service_role key + git history purge | `HARDCODED_VALUES_REGISTRY.md §8 #1` | Live credential in repo | 🔥 post-testing |
+| 19 | Restrict/rotate Google Maps key `AIzaSyC5i7lh...m9M` | `HARDCODED_VALUES_REGISTRY.md §8 #2` | Live key in two committed test scripts | 🔥 post-testing |
+| 20 | Delete stale `code_review_report_*.json` (×8) | 5.1 | Pre-audit (2026-03-26), superseded | ⚪ |
+
+### 6.5 Maintenance rule
+
+Going forward, any claim "X is done" in this registry or in a sister
+audit must be **verified against the filesystem** before being cited.
+Prose-only completion reports are advisory, not authoritative. Row
+updates should include:
+
+- Commit SHA (if known)
+- File path + line number of evidence
+- Date of verification
+
+Specifically for this registry: when an enhancement in §1–5 lands,
+add a ✅ marker **and** a short parenthetical citation like
+`(✅ 2026-04-17 — backend/routes/foo.py:42, commit abc1234)`.
+
+### 6.6 Artifact retention policy
+
+| Artifact class | Retention | Rationale |
+|---|---|---|
+| `docs/audit/production-readiness-YYYY-MM/` | Permanent | Compliance evidence |
+| `code_review_report_*.json` | **Delete** on next cleanup pass | Pre-audit snapshots, superseded |
+| Root `*.md` reports (15 files) | Move to `docs/reports/2026-Q1/` | Historical context, not current state |
+| `.kilo/plans/*.md` | Keep as narrative roadmap; link from README | Product thinking, not code |
+| `agents/knowledge/tasks/*.json`, `reviews/*.json` | Keep 90 days rolling | Runtime store for agents |
+| `memory/*.md` | Permanent, curated | Long-term human-reviewed records |
+| `discovery/` | Archive to `archive/discovery-2025/` | Legacy Expo skeleton + spec docs |
+
+
