@@ -72,6 +72,9 @@ export default function Index() {
       log.info('No driver row found → /become-driver');
       router.replace('/become-driver' as any);
     } else {
+      // Profile complete — go straight to the driver home.
+      // The driver record is auto-created by authStore if missing;
+      // the home screen handles the no-driver-record state gracefully.
       router.replace('/driver/' as any);
     }
   }, [isInitialized, token, user, driver, navigationRef.isReady()]);

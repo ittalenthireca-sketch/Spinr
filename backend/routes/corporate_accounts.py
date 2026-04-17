@@ -9,25 +9,32 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from dependencies import get_admin_user
-
-# Alias for backward compatibility
-get_current_admin = get_admin_user
-# Validate that we're importing the right function
 from db_supabase import (  # noqa: E402
     delete_corporate_account as db_delete_corporate_account,
 )
 from db_supabase import (  # noqa: E402
-    get_all_corporate_accounts,
     get_corporate_account_by_id,
     insert_corporate_account,
 )
 from db_supabase import (  # noqa: E402
     update_corporate_account as db_update_corporate_account,
 )
+from dependencies import get_admin_user
+from schemas.corporate import (  # noqa: E402
+    CompanyStatus,
+    CompanyStatusTransition,
+    KYBReviewDecision,
+    SizeTier,
+)
+from schemas.corporate import (
+    CorporateAccountResponse as CorporateAccountDetailResponse,
+)
 from validators import sanitize_string, validate_email, validate_id, validate_phone  # noqa: E402
+
+# Alias for backward compatibility
+get_current_admin = get_admin_user
 
 router = APIRouter(prefix="/admin/corporate-accounts", tags=["Corporate Accounts"])
 
@@ -64,32 +71,95 @@ class CorporateAccountResponse(CorporateAccountBase):
         from_attributes = True
 
 
-@router.get("", response_model=List[CorporateAccountResponse])
+@router.get("", response_model=List[CorporateAccountDetailResponse])
 async def get_corporate_accounts(
     request: Request,
     skip: int = 0,
     limit: int = 100,
     search: Optional[str] = None,
+    status: Optional[CompanyStatus] = None,
+    size_tier: Optional[SizeTier] = None,
     is_active: Optional[bool] = None,
     current_admin: dict = Depends(get_current_admin),
 ):
-    """
-    Get all corporate accounts with optional filtering and pagination.
+    """List corporate accounts with optional filters and pagination."""
+    from db_supabase import list_corporate_accounts_filtered
 
-    Args:
-        skip: Number of records to skip (for pagination)
-        limit: Maximum number of records to return
-        search: Search term to match against company name, contact name, or email
-        is_active: Filter by active status
-        current_admin: Authenticated admin user
-    """
     try:
-        accounts = await get_all_corporate_accounts(skip=skip, limit=limit, search=search, is_active=is_active)
-        return accounts
+        rows = await list_corporate_accounts_filtered(
+            status=status.value if status else None,
+            size_tier=size_tier.value if size_tier else None,
+            search=search,
+            skip=skip,
+            limit=min(limit, 500),
+        )
+        if is_active is not None:
+            rows = [r for r in rows if bool(r.get("is_active")) == is_active]
+        return rows
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to fetch corporate accounts: {str(e)}"
+            status_code=500,
+            detail=f"Failed to fetch corporate accounts: {str(e)}",
         ) from e
+
+
+_ALLOWED_KYB_CONTENT = {"application/pdf", "image/png", "image/jpeg"}
+
+
+class KYBUploadURLRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content_type: str = Field(..., description="MIME type of the KYB document to upload")
+
+
+@router.post("/{company_id}/kyb-upload-url")
+async def kyb_upload_url(
+    company_id: str,
+    body: KYBUploadURLRequest,
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Return a short-lived signed upload URL for a KYB document.
+
+    The caller uploads the document directly to Supabase Storage using the
+    returned URL; the backend never streams binary data.
+    """
+    _valid, normalized_id = validate_id(company_id, "Corporate Account ID", raise_exception=True)
+
+    if body.content_type not in _ALLOWED_KYB_CONTENT:
+        raise HTTPException(status_code=400, detail="Unsupported content type for KYB")
+
+    from db_supabase import create_kyb_upload_url
+
+    return await create_kyb_upload_url(
+        company_id=normalized_id, content_type=body.content_type
+    )
+
+
+@router.post("/{company_id}/kyb-review", response_model=CorporateAccountDetailResponse)
+async def kyb_review(
+    company_id: str,
+    decision: KYBReviewDecision,
+    request: Request,
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Approve or reject a pending KYB submission.
+
+    Approve → status='active'. Reject → status='suspended' so the company
+    can re-upload and be re-reviewed from the queue.
+    """
+    _valid, normalized_id = validate_id(company_id, "Corporate Account ID", raise_exception=True)
+
+    from db_supabase import record_kyb_decision
+
+    row = await record_kyb_decision(
+        company_id=normalized_id,
+        reviewer_id=current_admin["id"],
+        approved=decision.approve,
+        note=decision.note,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Corporate account not found")
+    return row
 
 
 @router.post("", response_model=CorporateAccountResponse, status_code=status.HTTP_201_CREATED)
@@ -222,3 +292,40 @@ async def delete_corporate_account(account_id: str, current_admin: dict = Depend
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete corporate account: {str(e)}"
         ) from e
+
+
+@router.post(
+    "/{company_id}/status",
+    response_model=CorporateAccountDetailResponse,
+)
+async def change_company_status(
+    company_id: str,
+    transition: CompanyStatusTransition,
+    current_admin: dict = Depends(get_current_admin),
+):
+    _valid, normalized_id = validate_id(company_id, "Corporate Account ID", raise_exception=True)
+
+    current = await get_corporate_account_by_id(validated_id=normalized_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Corporate account not found")
+
+    if current.get("status") == CompanyStatus.CLOSED.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Corporate account is closed and cannot be reopened",
+        )
+
+    from db_supabase import update_corporate_account_status
+
+    # transition.reason is accepted but not persisted — audit log table lands
+    # with Plan 2, wallet freeze/unfreeze follows status in the same plan.
+    row = await update_corporate_account_status(
+        company_id=normalized_id,
+        status=transition.status.value,
+    )
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="Corporate account disappeared mid-transition",
+        )
+    return row

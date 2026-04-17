@@ -275,7 +275,6 @@ export default function MonitoringPage() {
 
   // Filter active rides list by service area
   const visibleRides = useMemo(() => {
-    // eslint-disable-next-line react-hooks/refs
     const rides = Array.from(ridesMapRef.current.values());
     return rides.filter((r) => {
       if (filters.serviceAreaId) {

@@ -164,7 +164,12 @@ export default function EmergencyContactsScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={true}
+        >
           {/* Info Banner */}
           <View style={styles.infoBanner}>
             <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
