@@ -325,9 +325,9 @@ or be deleted outright.
 
 | Path | What exists | Enhancement | Value-add | Priority |
 |---|---|---|---|---|
-| `ANALYSIS_REPORT.md`, `ARCHITECTURE.md`, `CODE_ANALYSIS_REPORT.md`, `CODE_REVIEW_REPORT.md`, `GAP_ANALYSIS.md`, `READINESS_REPORT.md`, `TODO.md` (and 10 more) | Historical agent reports at repo root | Move to `docs/reports/YYYY-MM/` with ISO-dated subfolders | Developer experience | 🟠 |
-| `code_review_report_*.json` (×8) | Stale JSON snapshots | Delete; `agents/knowledge/reviews/` is the canonical store | Developer experience | 🟠 |
-| `CLAUDE.md` | Claude Code project instructions | Remove stale `graphify-out/` reference OR generate the graph (see §4.6) | Developer experience | 🔥 |
+| `ANALYSIS_REPORT.md`, `ARCHITECTURE.md`, `CODE_ANALYSIS_REPORT.md`, `CODE_REVIEW_REPORT.md`, `GAP_ANALYSIS.md`, `READINESS_REPORT.md`, `TODO.md` (and 10 more) | Historical agent reports at repo root | Move to `docs/reports/YYYY-MM/` with ISO-dated subfolders | Developer experience | ✅ 2026-04-17, commit `67127cf` |
+| `code_review_report_*.json` (×8) | Stale JSON snapshots | Delete; `agents/knowledge/reviews/` is the canonical store | Developer experience | ✅ 2026-04-17, commit `0126563` |
+| `CLAUDE.md` | Claude Code project instructions | Remove stale `graphify-out/` reference OR generate the graph (see §4.6) | Developer experience | ✅ 2026-04-17, commit `b5e99a2` |
 | `README.md` | Project root readme | Link to `docs/audit/00_INDEX.md`, `.kilo/plans/1776144706168-quick-moon.md`, and `memory/` | Developer experience | 🟠 |
 | `package.json` / `turbo.json` / `pnpm-workspace.yaml` _(if present)_ | Monorepo wiring | Verify all apps listed; add `i18n` as a workspace once centralized | Developer experience | 🟡 |
 
@@ -358,7 +358,7 @@ Cross-references the 🔥 items from each section.
 | 4 | Add Redis caching for settings/fares/polygons | `backend/utils/` | 2.3 | Every request hits Postgres unnecessarily |
 | 5 | Archive `backend/migrations/` legacy SQL | `backend/migrations/` | 2.5 | 27 SQL files parallel to Alembic — drift risk |
 | 6 | Phone masking (rider ↔ driver) via Twilio Proxy | `rider-app/`, `driver-app/`, `backend/` | 1.1 | PII exposure + compliance |
-| 7 | Move root MD reports → `docs/reports/` + delete stale JSON | Root | 5.1 | 25+ files polluting root; cheap |
+| 7 | Move root MD reports → `docs/reports/` + delete stale JSON | Root | 5.1 | ✅ 2026-04-17 — moved to `docs/reports/2026-Q1/` (`67127cf`) + JSON deleted (`0126563`) |
 | 8 | Add pre-commit secret-scan hook | `.husky/` | 3.5 | Prevents next leaked key |
 | 9 | Admin dashboard KPI cards + real-time tile | `admin-dashboard/` | 1.3 | Ops team currently flies blind |
 | 10 | Thicken service layer (routes → services) | `backend/routes/`, `backend/services/` | 2.1, 2.2 | Blocks testability of whole backend |
@@ -453,12 +453,12 @@ the registry's priority summary (§5.3) should focus on:
 
 | # | Enhancement | Section | Why still open | Priority |
 |---|---|---|---|---|
-| 1 | **Fix `fly.toml:32 min_machines_running = 0` → 1** | 3.4 | Completion report claims done; **file disagrees** | 🔥 P0 — live prod risk |
-| 2 | Restore or remove `docs/audit/` 01–08 references in INDEX | 6.1 | Broken documentation | 🟠 |
+| 1 | **Fix `fly.toml:32 min_machines_running = 0` → 1** | 3.4 | Completion report claims done; **file disagrees** | ✅ 2026-04-17, commit `a83ecc2` |
+| 2 | Restore or remove `docs/audit/` 01–08 references in INDEX | 6.1 | Broken documentation | ✅ 2026-04-17, commit `85f289a` |
 | 3 | WebSocket multi-machine (deferred P2 from audit §1 summary) | 2.3 | Pubsub exists but horizontal-scale deployment + sticky sessions not finished | 🟠 |
 | 4 | A11y completion on remaining 8 mobile screens (deferred P2) | 1.1, 1.2 | `docs/ux/A11Y_AUDIT.md` tracks; 4/12 screens done, 8 left | 🟠 |
-| 5 | Wire `.maestro/` mobile E2E to CI | 3.6 | Still orphaned per ci.yml grep | 🔥 |
-| 6 | Fix `CLAUDE.md` → `graphify-out/` reference | 4.6, 5.1 | Broken tool instruction | 🔥 |
+| 5 | Wire `.maestro/` mobile E2E to CI | 3.6 | Still orphaned per ci.yml grep | ✅ 2026-04-17, commit `8aabf03` |
+| 6 | Fix `CLAUDE.md` → `graphify-out/` reference | 4.6, 5.1 | Broken tool instruction | ✅ 2026-04-17, commit `b5e99a2` |
 | 7 | Harden WS pubsub fail-fast (no silent fallback) | 2.3 | Pubsub ships but degrades silently if Redis URL unset | 🟠 |
 | 8 | Redis caching for read-hot (settings/fares/polygons) | 2.3 | Not addressed in audit phases | 🟠 |
 | 9 | Service-layer thickening (routes → services) | 2.1, 2.2 | Not addressed in audit phases | 🟠 |
@@ -472,7 +472,7 @@ the registry's priority summary (§5.3) should focus on:
 | 17 | Dedupe JWT_SECRET definitions in `backend/.env.example` | `HARDCODED_VALUES_REGISTRY.md §8 #7` | Cheap post-testing cleanup | 🟡 |
 | 18 | Rotate Supabase service_role key + git history purge | `HARDCODED_VALUES_REGISTRY.md §8 #1` | Live credential in repo | 🔥 post-testing |
 | 19 | Restrict/rotate Google Maps key `AIzaSyC5i7lh...m9M` | `HARDCODED_VALUES_REGISTRY.md §8 #2` | Live key in two committed test scripts | 🔥 post-testing |
-| 20 | Delete stale `code_review_report_*.json` (×8) | 5.1 | Pre-audit (2026-03-26), superseded | ⚪ |
+| 20 | Delete stale `code_review_report_*.json` (×8) | 5.1 | Pre-audit (2026-03-26), superseded | ✅ 2026-04-17, commit `0126563` |
 
 ### 6.5 Maintenance rule
 
