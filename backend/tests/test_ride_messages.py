@@ -8,7 +8,7 @@ Implementation notes:
   Patch target: backend.routes.rides.db
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException

@@ -9,7 +9,7 @@ routes/rides.py uses the flat db_supabase interface:
 All mocks use the flat interface (no collection attributes).
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
