@@ -29,6 +29,26 @@ os.environ.setdefault("ADMIN_EMAIL", "admin@spinr.ca")
 os.environ.setdefault("ENV", "test")
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Auto-skip integration-marked tests when Supabase is not reachable.
+
+    CI injects SUPABASE_URL as an empty string when the secret is not set,
+    which os.environ.setdefault() cannot override.  Rather than letting tests
+    fail with a cryptic AttributeError, surface a clear skip reason.
+    """
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if supabase_url and supabase_key:
+        return  # real credentials present — let tests run
+
+    skip_marker = pytest.mark.skip(
+        reason="Supabase not configured (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set)"
+    )
+    for item in items:
+        if item.get_closest_marker("integration"):
+            item.add_marker(skip_marker)
+
+
 @pytest.fixture(scope="session")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """Create an instance of the default event loop for each test session."""
