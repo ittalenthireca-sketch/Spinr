@@ -6,8 +6,8 @@ import {
     TextInput,
     TouchableOpacity,
     KeyboardAvoidingView,
+    ScrollView,
     Platform,
-    Alert,
     SafeAreaView
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -15,6 +15,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@shared/theme/ThemeContext';
 import type { ThemeColors } from '@shared/theme/index';
 import api from '@shared/api/client';
+import CustomAlert, { AlertButton } from '@shared/components/CustomAlert';
+import { useLocationStore } from '@shared/store/locationStore';
+import useDriverStore from '../store/driverStore';
 
 export default function ReportSafetyScreen() {
     const router = useRouter();
@@ -22,13 +25,25 @@ export default function ReportSafetyScreen() {
     const styles = useMemo(() => createStyles(colors), [colors]);
     const [issue, setIssue] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [alert, setAlert] = useState<{
+        visible: boolean; title: string; message?: string;
+        variant: 'info' | 'success' | 'danger' | 'warning';
+        buttons?: AlertButton[];
+    }>({ visible: false, title: '', variant: 'info' });
+
+    const showAlert = (title: string, message: string, variant: 'success' | 'danger' | 'warning' | 'info' = 'info', buttons?: AlertButton[]) => {
+        setAlert({ visible: true, title, message, variant, buttons });
+    };
+
+    const location = useLocationStore(state => state.coords);
+    const activeRide = useDriverStore(state => state.activeRide);
 
     const location = useLocationStore(state => state.coords);
     const activeRide = useDriverStore(state => state.activeRide);
 
     const handleSubmit = async () => {
         if (!issue.trim()) {
-            Alert.alert('Error', 'Please describe the safety issue before submitting.');
+            showAlert('Error', 'Please describe the safety issue before submitting.', 'warning');
             return;
         }
 
@@ -56,19 +71,16 @@ export default function ReportSafetyScreen() {
         try {
             // G22: Use the shared API client which attaches the auth token.
             // Previously used raw fetch without Authorization header.
-            await api.post('/support/tickets/safety-report', { description: issue });
+            await api.post('/support/tickets/safety-report', reportData);
 
-            if (!response.ok) {
-                throw new Error('Failed to submit report');
-            }
-
-            Alert.alert(
+            showAlert(
                 'Report Submitted',
                 'Your safety report has been submitted. Our trust and safety team will review it immediately.',
-                [{ text: 'OK', onPress: () => router.back() }]
+                'success',
+                [{ text: 'OK', style: 'default', onPress: () => router.back() }]
             );
         } catch (e) {
-            Alert.alert('Error', 'Failed to submit report. Please try again.');
+            showAlert('Error', 'Failed to submit report. Please try again.', 'danger');
             setSubmitting(false);
         }
     };
@@ -91,7 +103,12 @@ export default function ReportSafetyScreen() {
                 style={styles.container}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
-                <View style={styles.content}>
+                <ScrollView
+                    contentContainerStyle={styles.content}
+                    keyboardShouldPersistTaps="handled"
+                    automaticallyAdjustKeyboardInsets={true}
+                    showsVerticalScrollIndicator={false}
+                >
                     <View style={styles.warningBox}>
                         <Ionicons name="warning" size={24} color="#F59E0B" />
                         <Text style={styles.warningText}>
@@ -121,8 +138,16 @@ export default function ReportSafetyScreen() {
                             {submitting ? 'Submitting...' : 'Submit Report'}
                         </Text>
                     </TouchableOpacity>
-                </View>
+                </ScrollView>
             </KeyboardAvoidingView>
+            <CustomAlert
+                visible={alert.visible}
+                title={alert.title}
+                message={alert.message}
+                variant={alert.variant}
+                buttons={alert.buttons || [{ text: 'OK', style: 'default' }]}
+                onClose={() => setAlert(a => ({ ...a, visible: false }))}
+            />
         </SafeAreaView>
     );
 }

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, Image, Modal, Platform, StatusBar } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Image, Modal, Platform, StatusBar } from 'react-native';
+import CustomAlert, { AlertButton } from '@shared/components/CustomAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -26,6 +27,24 @@ const getAuthToken = async (): Promise<string | null> => {
         return null;
     }
 };
+
+// Derive a proper MIME type from a file URI / name.
+// expo-image-picker returns asset.type = 'image' (not a MIME), so we check
+// the extension instead. HEIC/HEIF are mapped to image/jpeg because the
+// backend allowlist doesn't include Apple-native formats.
+const EXT_TO_MIME: Record<string, string> = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    pdf: 'application/pdf',
+    heic: 'image/jpeg', heif: 'image/jpeg',
+};
+function getMimeFromUri(uri: string, fileName?: string | null): string {
+    const name = fileName || uri;
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    return EXT_TO_MIME[ext] || 'image/jpeg';
+}
 
 interface Requirement {
     id: string;
@@ -55,6 +74,15 @@ export default function DocumentsScreen() {
     const [documents, setDocuments] = useState<DriverDocument[]>([]);
     const [uploading, setUploading] = useState<string | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [alert, setAlert] = useState<{
+        visible: boolean; title: string; message?: string;
+        variant: 'info' | 'success' | 'danger' | 'warning';
+        buttons?: AlertButton[];
+    }>({ visible: false, title: '', variant: 'info' });
+
+    const showAlert = (title: string, message: string, variant: 'success' | 'danger' | 'warning' | 'info' = 'info', buttons?: AlertButton[]) => {
+        setAlert({ visible: true, title, message, variant, buttons });
+    };
 
     const loadData = async () => {
         try {
@@ -70,7 +98,7 @@ export default function DocumentsScreen() {
                 console.error("Error status:", err.response.status);
                 console.error("Error data:", err.response.data);
             }
-            Alert.alert("Error", `Failed to load documents: ${err.message}`);
+            showAlert('Error', `Failed to load documents: ${err.message}`, 'danger');
         } finally {
             setLoading(false);
         }
@@ -147,7 +175,7 @@ export default function DocumentsScreen() {
             await loadData();
             await fetchDriverProfile();
 
-            Alert.alert('Uploaded', 'Document submitted for review.');
+            showAlert('Uploaded', 'Document submitted for review.', 'success');
         } catch (err: any) {
             // Unpack the error safely — axios errors have `response.data.detail`,
             // fetch errors have `message`, anything else falls back to String().
@@ -158,7 +186,7 @@ export default function DocumentsScreen() {
                 (typeof err === 'string' ? err : JSON.stringify(err)) ||
                 'Something went wrong';
             console.log('Upload error:', err);
-            Alert.alert('Upload Failed', String(detail));
+            showAlert('Upload Failed', String(detail), 'danger');
         } finally {
             setUploading(null);
         }
@@ -169,13 +197,13 @@ export default function DocumentsScreen() {
             if (useCamera) {
                 const { status } = await ImagePicker.requestCameraPermissionsAsync();
                 if (status !== 'granted') {
-                    Alert.alert('Permission needed', 'Camera permission is required to take photos.');
+                    showAlert('Permission needed', 'Camera permission is required to take photos.', 'warning');
                     return;
                 }
             } else {
                 const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
                 if (status !== 'granted') {
-                    Alert.alert('Permission needed', 'Gallery permission is required to upload photos.');
+                    showAlert('Permission needed', 'Gallery permission is required to upload photos.', 'warning');
                     return;
                 }
             }
@@ -195,12 +223,15 @@ export default function DocumentsScreen() {
             if (!result.canceled && result.assets && result.assets.length > 0) {
                 const asset = result.assets[0];
                 const name = asset.fileName || `photo_${Date.now()}.jpg`;
-                const mimeType = asset.type === 'image' || !asset.type ? 'image/jpeg' : asset.type;
+                // asset.type from expo-image-picker is 'image'|'video', not a MIME type.
+                // Derive the real MIME from the file extension so the backend magic-byte
+                // check doesn't reject a PNG declared as image/jpeg.
+                const mimeType = getMimeFromUri(asset.uri, name);
 
                 await processUpload(asset.uri, name, mimeType, reqId, side);
             }
         } catch (e) {
-            Alert.alert('Error', 'Failed to pick image');
+            showAlert('Error', 'Failed to pick image', 'danger');
         }
     };
 
@@ -214,36 +245,28 @@ export default function DocumentsScreen() {
             if (result.canceled) return;
 
             const asset = result.assets[0];
-            await processUpload(asset.uri, asset.name, asset.mimeType || 'image/jpeg', reqId, side);
+            await processUpload(asset.uri, asset.name, asset.mimeType || getMimeFromUri(asset.uri, asset.name), reqId, side);
 
         } catch (err: any) {
-            Alert.alert("Upload Failed", err.message);
+            showAlert('Upload Failed', err.message, 'danger');
         }
     };
 
     const handleUpload = async (reqId: string, side: 'front' | 'back') => {
         if (Platform.OS === 'ios') {
-            Alert.alert(
-                'Upload Document',
-                'Choose a source',
-                [
-                    { text: 'Camera', onPress: () => pickImage(reqId, side, true) },
-                    { text: 'Gallery', onPress: () => pickImage(reqId, side, false) },
-                    { text: 'File', onPress: () => pickFile(reqId, side) },
-                    { text: 'Cancel', style: 'cancel' }
-                ]
-            );
+            showAlert('Upload Document', 'Choose a source', 'info', [
+                { text: 'Camera', style: 'default', onPress: () => pickImage(reqId, side, true) },
+                { text: 'Gallery', style: 'default', onPress: () => pickImage(reqId, side, false) },
+                { text: 'File', style: 'default', onPress: () => pickFile(reqId, side) },
+                { text: 'Cancel', style: 'cancel' },
+            ]);
         } else {
-            Alert.alert(
-                'Upload Document',
-                'Choose a source',
-                [
-                    { text: 'Camera', onPress: () => pickImage(reqId, side, true) },
-                    { text: 'Gallery', onPress: () => pickImage(reqId, side, false) },
-                    { text: 'File / Cancel', onPress: () => pickFile(reqId, side) },
-                ],
-                { cancelable: true }
-            );
+            showAlert('Upload Document', 'Choose a source', 'info', [
+                { text: 'Camera', style: 'default', onPress: () => pickImage(reqId, side, true) },
+                { text: 'Gallery', style: 'default', onPress: () => pickImage(reqId, side, false) },
+                { text: 'File', style: 'default', onPress: () => pickFile(reqId, side) },
+                { text: 'Cancel', style: 'cancel' },
+            ]);
         }
     };
 
@@ -576,6 +599,15 @@ export default function DocumentsScreen() {
                     )}
                 </View>
             </Modal>
+
+            <CustomAlert
+                visible={alert.visible}
+                title={alert.title}
+                message={alert.message}
+                variant={alert.variant}
+                buttons={alert.buttons || [{ text: 'OK', style: 'default' }]}
+                onClose={() => setAlert(a => ({ ...a, visible: false }))}
+            />
         </View>
     );
 }

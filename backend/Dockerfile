@@ -40,7 +40,6 @@ RUN mkdir -p /app/logs && chmod 777 /app/logs
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
-# Copy application source — owned by the non-root user
 COPY --chown=spinr:spinr . .
 
 ENV PYTHONPATH=/app
