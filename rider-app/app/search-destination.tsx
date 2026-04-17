@@ -297,11 +297,13 @@ export default function SearchDestinationScreen() {
     <TouchableOpacity
       style={styles.predictionRow}
       onPress={() => handleSelectPrediction(item)}
+      accessibilityLabel={item.description}
+      accessibilityRole="button"
     >
-      <View style={styles.predictionIcon}>
-        <Ionicons name="location-outline" size={20} color={colors.textDim} />
+      <View style={styles.predictionIcon} accessible={false}>
+        <Ionicons name="location-outline" size={20} color={colors.textDim} accessible={false} />
       </View>
-      <View style={styles.predictionContent}>
+      <View style={styles.predictionContent} accessible={false}>
         <Text style={styles.predictionMainText} numberOfLines={1}>
           {item.structured_formatting?.main_text || item.description}
         </Text>
@@ -318,10 +320,10 @@ export default function SearchDestinationScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()} accessibilityLabel="Go back" accessibilityRole="button">
+          <Ionicons name="arrow-back" size={24} color={colors.text} accessible={false} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Set destination</Text>
+        <Text style={styles.headerTitle} accessibilityRole="header">Set destination</Text>
         <View style={{ width: 44 }} />
       </View>
 
@@ -329,7 +331,7 @@ export default function SearchDestinationScreen() {
       <View style={styles.inputsContainer}>
         {/* Pickup */}
         <View style={styles.inputRow}>
-          <View style={[styles.dot, { backgroundColor: '#10B981' }]} />
+          <View style={[styles.dot, { backgroundColor: '#10B981' }]} accessible={false} />
           <View style={[styles.inputWrapper, activeField === 'pickup' && styles.inputActive]}>
             <TextInput
               ref={pickupRef}
@@ -340,6 +342,8 @@ export default function SearchDestinationScreen() {
               placeholder="Pickup location"
               placeholderTextColor={colors.textDim}
               selectTextOnFocus
+              accessibilityLabel="Pickup location"
+              accessibilityRole="search"
             />
             {pickupText ? (
               <TouchableOpacity onPress={() => {
@@ -347,8 +351,8 @@ export default function SearchDestinationScreen() {
                 setPickup(null as any);
                 setActiveField('pickup');
                 pickupRef.current?.focus();
-              }}>
-                <Ionicons name="close-circle" size={18} color="#CCC" />
+              }} accessibilityLabel="Clear pickup location" accessibilityRole="button">
+                <Ionicons name="close-circle" size={18} color="#CCC" accessible={false} />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -360,7 +364,7 @@ export default function SearchDestinationScreen() {
         {stops.map((stop, index) => (
           <View key={index}>
             <View style={styles.inputRow}>
-              <View style={[styles.dot, { backgroundColor: '#FFA500' }]} />
+              <View style={[styles.dot, { backgroundColor: '#FFA500' }]} accessible={false} />
               <View style={[styles.inputWrapper, activeField === index && styles.inputActive]}>
                 <TextInput
                   ref={(ref) => { stopRefs.current[index] = ref; }}
@@ -370,10 +374,12 @@ export default function SearchDestinationScreen() {
                   onFocus={() => handleFieldFocus(index)}
                   placeholder="Enter stop address"
                   placeholderTextColor={colors.textDim}
+                  accessibilityLabel={`Stop ${index + 1} location`}
+                  accessibilityRole="search"
                 />
               </View>
-              <TouchableOpacity onPress={() => handleRemoveStop(index)} style={styles.removeButton}>
-                <Ionicons name="close-circle" size={20} color={colors.textDim} />
+              <TouchableOpacity onPress={() => handleRemoveStop(index)} style={styles.removeButton} accessibilityLabel={`Remove stop ${index + 1}`} accessibilityRole="button">
+                <Ionicons name="close-circle" size={20} color={colors.textDim} accessible={false} />
               </TouchableOpacity>
             </View>
             <View style={styles.connectorLine} />
@@ -382,7 +388,7 @@ export default function SearchDestinationScreen() {
 
         {/* Dropoff */}
         <View style={styles.inputRow}>
-          <View style={[styles.dot, { backgroundColor: colors.primary }]} />
+          <View style={[styles.dot, { backgroundColor: colors.primary }]} accessible={false} />
           <View style={[styles.inputWrapper, activeField === 'dropoff' && styles.inputActive]}>
             <TextInput
               ref={dropoffRef}
@@ -393,6 +399,8 @@ export default function SearchDestinationScreen() {
               placeholder="Where to?"
               placeholderTextColor={colors.textDim}
               autoFocus
+              accessibilityLabel="Destination location"
+              accessibilityRole="search"
             />
             {dropoffText ? (
               <TouchableOpacity onPress={() => {
@@ -400,8 +408,8 @@ export default function SearchDestinationScreen() {
                 setDropoff(null as any);
                 setActiveField('dropoff');
                 dropoffRef.current?.focus();
-              }}>
-                <Ionicons name="close-circle" size={18} color="#CCC" />
+              }} accessibilityLabel="Clear destination" accessibilityRole="button">
+                <Ionicons name="close-circle" size={18} color="#CCC" accessible={false} />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -409,8 +417,8 @@ export default function SearchDestinationScreen() {
 
         {/* Add Stop Button */}
         {stops.length < 3 && (
-          <TouchableOpacity style={styles.addStopButton} onPress={handleAddStop}>
-            <Ionicons name="add-circle" size={20} color={colors.primary} />
+          <TouchableOpacity style={styles.addStopButton} onPress={handleAddStop} accessibilityLabel="Add a stop" accessibilityRole="button" accessibilityHint="Adds an intermediate stop between pickup and destination">
+            <Ionicons name="add-circle" size={20} color={colors.primary} accessible={false} />
             <Text style={styles.addStopText}>Add stop</Text>
           </TouchableOpacity>
         )}
@@ -445,6 +453,8 @@ export default function SearchDestinationScreen() {
                   {activeField === 'pickup' && userLocation && (
                     <TouchableOpacity
                       style={styles.predictionRow}
+                      accessibilityLabel="Current Location — Use your GPS location"
+                      accessibilityRole="button"
                       onPress={() => {
                         const location = {
                           address: 'Current Location',
@@ -457,10 +467,10 @@ export default function SearchDestinationScreen() {
                         setPredictions([]);
                       }}
                     >
-                      <View style={[styles.predictionIcon, { backgroundColor: '#E8F5E9' }]}>
-                        <Ionicons name="navigate" size={20} color="#10B981" />
+                      <View style={[styles.predictionIcon, { backgroundColor: '#E8F5E9' }]} accessible={false}>
+                        <Ionicons name="navigate" size={20} color="#10B981" accessible={false} />
                       </View>
-                      <View style={styles.predictionContent}>
+                      <View style={styles.predictionContent} accessible={false}>
                         <Text style={styles.predictionMainText}>Current Location</Text>
                         <Text style={styles.predictionSecondaryText}>Use your GPS location</Text>
                       </View>
@@ -470,14 +480,17 @@ export default function SearchDestinationScreen() {
                   {/* Set Location on Map */}
                   <TouchableOpacity
                     style={styles.predictionRow}
+                    accessibilityLabel="Set location on map"
+                    accessibilityRole="button"
+                    accessibilityHint="Opens a map so you can choose a point"
                     onPress={() => {
                       router.push({ pathname: '/pick-on-map', params: { field: activeField === 'pickup' ? 'pickup' : 'dropoff' } } as any);
                     }}
                   >
-                    <View style={[styles.predictionIcon, { backgroundColor: '#EDE9FE' }]}>
-                      <Ionicons name="map" size={20} color="#7C3AED" />
+                    <View style={[styles.predictionIcon, { backgroundColor: '#EDE9FE' }]} accessible={false}>
+                      <Ionicons name="map" size={20} color="#7C3AED" accessible={false} />
                     </View>
-                    <View style={styles.predictionContent}>
+                    <View style={styles.predictionContent} accessible={false}>
                       <Text style={styles.predictionMainText}>Set location on map</Text>
                       <Text style={styles.predictionSecondaryText}>Choose a point on the map</Text>
                     </View>
@@ -490,6 +503,9 @@ export default function SearchDestinationScreen() {
                       return (
                         <TouchableOpacity
                           style={styles.quickChip}
+                          accessibilityLabel={homeAddr ? `Home — ${homeAddr.address}` : 'Home — not set'}
+                          accessibilityRole="button"
+                          accessibilityHint={homeAddr ? undefined : 'Set your home address in Account, Saved Places'}
                           onPress={() => {
                             if (homeAddr) {
                               handleSelectLocation({ address: homeAddr.address, lat: homeAddr.lat, lng: homeAddr.lng });
@@ -498,9 +514,9 @@ export default function SearchDestinationScreen() {
                             }
                           }}
                         >
-                          <Ionicons name="home" size={18} color={homeAddr ? colors.primary : '#BBB'} />
-                          <Text style={[styles.quickChipText, !homeAddr && { color: '#BBB' }]}>Home</Text>
-                          {homeAddr && <Ionicons name="chevron-forward" size={14} color="#CCC" />}
+                          <Ionicons name="home" size={18} color={homeAddr ? colors.primary : '#BBB'} accessible={false} />
+                          <Text style={[styles.quickChipText, !homeAddr && { color: '#BBB' }]} accessible={false}>Home</Text>
+                          {homeAddr && <Ionicons name="chevron-forward" size={14} color="#CCC" accessible={false} />}
                         </TouchableOpacity>
                       );
                     })()}
@@ -509,6 +525,9 @@ export default function SearchDestinationScreen() {
                       return (
                         <TouchableOpacity
                           style={styles.quickChip}
+                          accessibilityLabel={workAddr ? `Work — ${workAddr.address}` : 'Work — not set'}
+                          accessibilityRole="button"
+                          accessibilityHint={workAddr ? undefined : 'Set your work address in Account, Saved Places'}
                           onPress={() => {
                             if (workAddr) {
                               handleSelectLocation({ address: workAddr.address, lat: workAddr.lat, lng: workAddr.lng });
@@ -517,9 +536,9 @@ export default function SearchDestinationScreen() {
                             }
                           }}
                         >
-                          <Ionicons name="briefcase" size={18} color={workAddr ? '#3B82F6' : '#BBB'} />
-                          <Text style={[styles.quickChipText, !workAddr && { color: '#BBB' }]}>Work</Text>
-                          {workAddr && <Ionicons name="chevron-forward" size={14} color="#CCC" />}
+                          <Ionicons name="briefcase" size={18} color={workAddr ? '#3B82F6' : '#BBB'} accessible={false} />
+                          <Text style={[styles.quickChipText, !workAddr && { color: '#BBB' }]} accessible={false}>Work</Text>
+                          {workAddr && <Ionicons name="chevron-forward" size={14} color="#CCC" accessible={false} />}
                         </TouchableOpacity>
                       );
                     })()}
@@ -528,21 +547,23 @@ export default function SearchDestinationScreen() {
                   {/* Favourites */}
                   {savedAddresses.filter(a => a.name?.toLowerCase() !== 'home' && a.name?.toLowerCase() !== 'work').length > 0 && (
                     <View>
-                      <Text style={styles.sectionTitle}>Favourites</Text>
+                      <Text style={styles.sectionTitle} accessibilityRole="header">Favourites</Text>
                       {savedAddresses
                         .filter(a => a.name?.toLowerCase() !== 'home' && a.name?.toLowerCase() !== 'work')
                         .map((addr, index) => (
                         <TouchableOpacity
                           key={`fav-${index}`}
                           style={styles.predictionRow}
+                          accessibilityLabel={`${addr.name || 'Saved'} — ${addr.address}`}
+                          accessibilityRole="button"
                           onPress={() => {
                             handleSelectLocation({ address: addr.address, lat: addr.lat, lng: addr.lng });
                           }}
                         >
-                          <View style={[styles.predictionIcon, { backgroundColor: '#FFF7ED' }]}>
-                            <Ionicons name="star" size={20} color="#F59E0B" />
+                          <View style={[styles.predictionIcon, { backgroundColor: '#FFF7ED' }]} accessible={false}>
+                            <Ionicons name="star" size={20} color="#F59E0B" accessible={false} />
                           </View>
-                          <View style={styles.predictionContent}>
+                          <View style={styles.predictionContent} accessible={false}>
                             <Text style={styles.predictionMainText}>{addr.name || 'Saved'}</Text>
                             <Text style={styles.predictionSecondaryText} numberOfLines={1}>{addr.address}</Text>
                           </View>
@@ -554,27 +575,30 @@ export default function SearchDestinationScreen() {
                   {/* Home & Work (if set, show as list items too) */}
                   {savedAddresses.filter(a => a.name?.toLowerCase() === 'home' || a.name?.toLowerCase() === 'work').length > 0 && (
                     <View>
-                      <Text style={styles.sectionTitle}>Saved Places</Text>
+                      <Text style={styles.sectionTitle} accessibilityRole="header">Saved Places</Text>
                       {savedAddresses
                         .filter(a => a.name?.toLowerCase() === 'home' || a.name?.toLowerCase() === 'work')
                         .map((addr, index) => (
                         <TouchableOpacity
                           key={`saved-${index}`}
                           style={styles.predictionRow}
+                          accessibilityLabel={`${addr.name} — ${addr.address}`}
+                          accessibilityRole="button"
                           onPress={() => {
                             handleSelectLocation({ address: addr.address, lat: addr.lat, lng: addr.lng });
                           }}
                         >
                           <View style={[styles.predictionIcon, {
                             backgroundColor: addr.name?.toLowerCase() === 'home' ? '#FEE2E2' : '#DBEAFE',
-                          }]}>
+                          }]} accessible={false}>
                             <Ionicons
                               name={addr.name?.toLowerCase() === 'home' ? 'home' : 'briefcase'}
                               size={20}
                               color={addr.name?.toLowerCase() === 'home' ? colors.primary : '#3B82F6'}
+                              accessible={false}
                             />
                           </View>
-                          <View style={styles.predictionContent}>
+                          <View style={styles.predictionContent} accessible={false}>
                             <Text style={styles.predictionMainText}>{addr.name}</Text>
                             <Text style={styles.predictionSecondaryText} numberOfLines={1}>{addr.address}</Text>
                           </View>
@@ -586,19 +610,21 @@ export default function SearchDestinationScreen() {
                   {/* Recent Searches */}
                   {recentSearches.length > 0 && (
                     <View>
-                      <Text style={styles.sectionTitle}>Recent</Text>
+                      <Text style={styles.sectionTitle} accessibilityRole="header">Recent</Text>
                       {recentSearches.map((search, index) => (
                         <TouchableOpacity
                           key={`recent-${index}`}
                           style={styles.predictionRow}
+                          accessibilityLabel={search.address}
+                          accessibilityRole="button"
                           onPress={() => {
                             handleSelectLocation({ address: search.address, lat: search.lat, lng: search.lng });
                           }}
                         >
-                          <View style={[styles.predictionIcon, { backgroundColor: colors.surfaceLight }]}>
-                            <Ionicons name="time-outline" size={20} color={colors.textDim} />
+                          <View style={[styles.predictionIcon, { backgroundColor: colors.surfaceLight }]} accessible={false}>
+                            <Ionicons name="time-outline" size={20} color={colors.textDim} accessible={false} />
                           </View>
-                          <View style={styles.predictionContent}>
+                          <View style={styles.predictionContent} accessible={false}>
                             <Text style={styles.predictionMainText} numberOfLines={1}>{search.address}</Text>
                           </View>
                         </TouchableOpacity>
@@ -619,9 +645,13 @@ export default function SearchDestinationScreen() {
           onPress={handleSearchRide}
           disabled={!canSearchRide}
           activeOpacity={0.8}
+          accessibilityLabel="Search Ride"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !canSearchRide }}
+          accessibilityHint="Finds available rides for your selected pickup and destination"
         >
-          <Ionicons name="search" size={20} color="#FFF" />
-          <Text style={styles.searchRideButtonText}>Search Ride</Text>
+          <Ionicons name="search" size={20} color="#FFF" accessible={false} />
+          <Text style={styles.searchRideButtonText} accessible={false}>Search Ride</Text>
         </TouchableOpacity>
       </View>
       <CustomAlert
