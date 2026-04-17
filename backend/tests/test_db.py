@@ -74,7 +74,9 @@ class TestCollection:
         assert cursor.filter is None
 
 
-@pytest.mark.skip(reason="db_supabase is a flat module — collection attribute checks no longer apply after Supabase migration")
+@pytest.mark.skip(
+    reason="db_supabase is a flat module — collection attribute checks no longer apply after Supabase migration"
+)
 class TestDBWrapper:
     """Tests for the main DB wrapper."""
 
@@ -124,7 +126,9 @@ class TestDBWrapper:
             assert hasattr(db, collection_name), f"Missing collection: {collection_name}"
 
 
-@pytest.mark.skip(reason="Collection-style db.users interface removed in Supabase migration — use db_supabase.find_one('users', ...) instead")
+@pytest.mark.skip(
+    reason="Collection-style db.users interface removed in Supabase migration — use db_supabase.find_one('users', ...) instead"
+)
 class TestUserCollection:
     """Tests for user-specific database operations."""
 

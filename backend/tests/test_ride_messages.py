@@ -123,9 +123,7 @@ class TestSendRideMessage:
         ride = {"id": "ride_1", "rider_id": "user_1", "driver_id": "driver_1"}
 
         with patch("backend.routes.rides.db") as mock_db:
-            mock_db.find_one = AsyncMock(
-                side_effect=lambda table, *a, **kw: ride if table == "rides" else None
-            )
+            mock_db.find_one = AsyncMock(side_effect=lambda table, *a, **kw: ride if table == "rides" else None)
 
             from backend.routes.rides import SendMessageRequest, send_ride_message
 
