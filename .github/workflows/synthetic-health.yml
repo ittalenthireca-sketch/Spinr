@@ -123,7 +123,7 @@ jobs:
     # Run less often (GH cron has no per-job schedule so we gate via
     # the minute, and even the 5-min granularity makes 15-min
     # intervals approximate).
-    if: ${{ (github.event.schedule && format('{0}', github.run_number) != '' && github.run_number % 3 == 0) || github.event_name == 'workflow_dispatch' }}
+    if: "${{ (github.event_name == 'schedule' && github.run_number % 3 == 0) || github.event_name == 'workflow_dispatch' }}"
     steps:
       - name: POST /rides/estimate against staging
         shell: bash
@@ -172,9 +172,9 @@ jobs:
   k6-latency-synthetic:
     name: "k6 latency synthetic (smoke scenario)"
     runs-on: ubuntu-latest
-    if: ${{ (github.event.schedule && github.run_number % 6 == 0) || github.event_name == 'workflow_dispatch' }}
+    if: "${{ (github.event_name == 'schedule' && github.run_number % 6 == 0) || github.event_name == 'workflow_dispatch' }}"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Install k6
         run: |
