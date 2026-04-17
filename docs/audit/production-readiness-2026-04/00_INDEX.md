@@ -33,16 +33,11 @@ This audit is intentionally split across **nine short documents** (rather than o
 
 ## Document index
 
+> **Note:** Topic-specific audit docs (01–08) were consolidated into 09 and 10
+> during remediation; this INDEX is retained for historical reference.
+
 | # | Document | Focus |
 |---|---|---|
-| 01 | [Executive Summary & Architecture](./01_EXECUTIVE_SUMMARY.md) | TL;DR, system map, tech inventory, module/folder reference |
-| 02 | [Security Audit](./02_SECURITY_AUDIT.md) | Auth, secrets, CORS, rate limits, RLS, PII, OWASP |
-| 03 | [Backend / API / Database Audit](./03_BACKEND_AUDIT.md) | FastAPI routes, Supabase schema, migrations, WebSocket, payments |
-| 04 | [Frontend & Mobile Audit](./04_FRONTEND_AUDIT.md) | Rider app, driver app, admin dashboard, UX, offline, a11y, i18n |
-| 05 | [DevOps / Deployment / Infra Audit](./05_DEVOPS_AUDIT.md) | Fly.io, Render, Vercel, Docker, EAS, secrets, CI/CD |
-| 06 | [Testing, Observability & Reliability](./06_TESTING_OBSERVABILITY.md) | Test coverage, Sentry, logs, health checks, SLOs, incident response |
-| 07 | [Performance, Scalability & Data](./07_PERFORMANCE_SCALABILITY.md) | DB indexes, N+1, caching, WS scale-out, background jobs |
-| 08 | [Compliance, Business, Legal & UX](./08_COMPLIANCE_UX.md) | PIPEDA, PCI, GDPR, ToS, safety, accessibility |
 | 09 | [Roadmap & Launch Checklist](./09_ROADMAP_CHECKLIST.md) | P0/P1/P2 remediation plan, go/no-go checklist, rollback plan |
 | **10** | **[Completion Report](./10_COMPLETION_REPORT.md)** | **Full remediation record — all phases, all commits, risk before/after, artefact inventory, outstanding items, sign-off** |
 
@@ -114,13 +109,7 @@ To be fair, Spinr has done many things *right*:
 
 | Role | Start with |
 |---|---|
-| CTO / Eng Lead | 01, 09 |
-| Security Engineer | 02, 09 |
-| Backend Engineer | 03, 07 |
-| Mobile Engineer | 04 |
-| DevOps / SRE | 05, 06 |
-| Product / Compliance | 08, 09 |
-| QA Lead | 06 |
+| All roles | [10_COMPLETION_REPORT.md](./10_COMPLETION_REPORT.md) for remediation record, [09_ROADMAP_CHECKLIST.md](./09_ROADMAP_CHECKLIST.md) for outstanding items |
 
 ---
 
