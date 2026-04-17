@@ -193,8 +193,14 @@ I've shared my live location with you for safety.
     <View style={styles.container}>
       {/* Header Status */}
       <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
-        <View style={styles.statusPill}>
-          <View style={styles.greenDot} />
+        <View
+          style={styles.statusPill}
+          accessible={true}
+          accessibilityRole="text"
+          accessibilityLabel="Ride started — enjoy your trip"
+          accessibilityLiveRegion="polite"
+        >
+          <View style={styles.greenDot} accessible={false} />
           <Text style={styles.statusText}>Ride Started - Enjoy your trip</Text>
         </View>
       </SafeAreaView>
@@ -310,8 +316,13 @@ I've shared my live location with you for safety.
         )}
 
         {/* Location button */}
-        <TouchableOpacity style={styles.locationButton} onPress={handleLocation}>
-          <Ionicons name="navigate" size={22} color={colors.text} />
+        <TouchableOpacity
+          style={styles.locationButton}
+          onPress={handleLocation}
+          accessibilityLabel="Center map on current location"
+          accessibilityRole="button"
+        >
+          <Ionicons name="navigate" size={22} color={colors.text} accessible={false} />
         </TouchableOpacity>
       </View>
 
@@ -328,12 +339,18 @@ I've shared my live location with you for safety.
         <BottomSheetScrollView contentContainerStyle={styles.bottomSheetContent}>
           <View>
             {/* ETA Hero */}
-            <View style={styles.etaHero}>
-              <View style={{ flex: 1 }}>
+            <View
+              style={styles.etaHero}
+              accessible={true}
+              accessibilityRole="text"
+              accessibilityLabel={`Arriving at ${estimatedTime}, ${eta} minutes remaining`}
+              accessibilityLiveRegion="polite"
+            >
+              <View style={{ flex: 1 }} accessible={false}>
                 <Text style={styles.etaLabel}>ARRIVING AT</Text>
                 <Text style={styles.etaTime}>{estimatedTime}</Text>
               </View>
-              <View style={styles.etaBadge}>
+              <View style={styles.etaBadge} accessible={false}>
                 <Text style={styles.etaBadgeNum}>{eta}</Text>
                 <Text style={styles.etaBadgeUnit}>min</Text>
               </View>
@@ -347,34 +364,52 @@ I've shared my live location with you for safety.
             {/* Driver Card */}
             <View style={styles.driverCard}>
               <View style={styles.driverRow}>
-                <View style={styles.driverAvatar}>
-                  <Ionicons name="person" size={26} color={colors.textDim} />
+                <View
+                  style={styles.driverAvatar}
+                  accessible={true}
+                  accessibilityRole="image"
+                  accessibilityLabel={currentDriver?.rating ? `Driver avatar, rated ${currentDriver.rating} stars` : 'Driver avatar'}
+                >
+                  <Ionicons name="person" size={26} color={colors.textDim} accessible={false} />
                   {currentDriver?.rating && (
-                    <View style={styles.ratingPill}>
-                      <Ionicons name="star" size={9} color="#FFB800" />
+                    <View style={styles.ratingPill} accessible={false}>
+                      <Ionicons name="star" size={9} color="#FFB800" accessible={false} />
                       <Text style={styles.ratingPillText}>{currentDriver.rating}</Text>
                     </View>
                   )}
                 </View>
-                <View style={{ flex: 1 }}>
+                <View
+                  style={{ flex: 1 }}
+                  accessible={true}
+                  accessibilityRole="text"
+                  accessibilityLabel={`${currentDriver?.name || 'Your driver'}, ${currentDriver?.total_rides || 0} trips completed`}
+                >
                   <Text style={styles.driverName}>{currentDriver?.name || 'Your Driver'}</Text>
                   <Text style={styles.driverMeta}>{currentDriver?.total_rides || 0} trips completed</Text>
                 </View>
                 <TouchableOpacity
                   style={styles.msgIconBtn}
                   onPress={() => router.push({ pathname: '/chat-driver', params: { rideId } } as any)}
+                  accessibilityLabel="Message driver"
+                  accessibilityRole="button"
+                  accessibilityHint="Opens chat with your driver"
                 >
-                  <Ionicons name="chatbubble" size={20} color={colors.primary} />
+                  <Ionicons name="chatbubble" size={20} color={colors.primary} accessible={false} />
                 </TouchableOpacity>
               </View>
 
               {/* Vehicle Info */}
-              <View style={styles.vehicleBar}>
-                <Ionicons name="car" size={16} color={colors.primary} />
+              <View
+                style={styles.vehicleBar}
+                accessible={true}
+                accessibilityRole="text"
+                accessibilityLabel={`Vehicle: ${currentDriver?.vehicle_color || ''} ${currentDriver?.vehicle_make || ''} ${currentDriver?.vehicle_model || ''}, license plate ${currentDriver?.license_plate || 'not available'}`}
+              >
+                <Ionicons name="car" size={16} color={colors.primary} accessible={false} />
                 <Text style={styles.vehicleDetail}>
                   {currentDriver?.vehicle_color} {currentDriver?.vehicle_make} {currentDriver?.vehicle_model}
                 </Text>
-                <View style={styles.plateBadge}>
+                <View style={styles.plateBadge} accessible={false}>
                   <Text style={styles.plateNum}>{currentDriver?.license_plate || 'N/A'}</Text>
                 </View>
               </View>
@@ -383,36 +418,64 @@ I've shared my live location with you for safety.
             {/* Trip Route Card */}
             <View style={styles.tripCard}>
               <View style={styles.tripRow}>
-                <View style={styles.tripDots}>
-                  <View style={[styles.tripDot, { backgroundColor: '#10B981' }]} />
-                  <View style={styles.tripConnector} />
-                  <View style={[styles.tripDot, { backgroundColor: colors.primary }]} />
+                <View style={styles.tripDots} accessible={false}>
+                  <View style={[styles.tripDot, { backgroundColor: '#10B981' }]} accessible={false} />
+                  <View style={styles.tripConnector} accessible={false} />
+                  <View style={[styles.tripDot, { backgroundColor: colors.primary }]} accessible={false} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.tripRouteLabel}>PICKUP</Text>
-                  <Text style={styles.tripRouteAddr} numberOfLines={1}>{currentRide?.pickup_address || 'Pickup'}</Text>
-                  <View style={{ height: 20 }} />
-                  <Text style={styles.tripRouteLabel}>DESTINATION</Text>
-                  <Text style={styles.tripRouteAddr} numberOfLines={1}>{currentRide?.dropoff_address || 'Destination'}</Text>
+                  <View
+                    accessible={true}
+                    accessibilityRole="text"
+                    accessibilityLabel={`Pickup: ${currentRide?.pickup_address || 'Pickup'}`}
+                  >
+                    <Text style={styles.tripRouteLabel}>PICKUP</Text>
+                    <Text style={styles.tripRouteAddr} numberOfLines={1}>{currentRide?.pickup_address || 'Pickup'}</Text>
+                  </View>
+                  <View style={{ height: 20 }} accessible={false} />
+                  <View
+                    accessible={true}
+                    accessibilityRole="text"
+                    accessibilityLabel={`Destination: ${currentRide?.dropoff_address || 'Destination'}`}
+                  >
+                    <Text style={styles.tripRouteLabel}>DESTINATION</Text>
+                    <Text style={styles.tripRouteAddr} numberOfLines={1}>{currentRide?.dropoff_address || 'Destination'}</Text>
+                  </View>
                 </View>
               </View>
 
               {/* Fare + Distance */}
               <View style={styles.fareRow}>
-                <View style={styles.fareItem}>
-                  <Ionicons name="cash-outline" size={16} color={colors.textDim} />
+                <View
+                  style={styles.fareItem}
+                  accessible={true}
+                  accessibilityRole="text"
+                  accessibilityLabel={`Fare: $${(currentRide?.total_fare || 0).toFixed(2)}`}
+                >
+                  <Ionicons name="cash-outline" size={16} color={colors.textDim} accessible={false} />
                   <Text style={styles.fareValue}>${(currentRide?.total_fare || 0).toFixed(2)}</Text>
                   <Text style={styles.fareLabel}>Fare</Text>
                 </View>
-                <View style={styles.fareDivider} />
-                <View style={styles.fareItem}>
-                  <Ionicons name="speedometer-outline" size={16} color={colors.textDim} />
+                <View style={styles.fareDivider} accessible={false} />
+                <View
+                  style={styles.fareItem}
+                  accessible={true}
+                  accessibilityRole="text"
+                  accessibilityLabel={`Distance: ${(currentRide?.distance_km || 0).toFixed(1)} kilometers`}
+                >
+                  <Ionicons name="speedometer-outline" size={16} color={colors.textDim} accessible={false} />
                   <Text style={styles.fareValue}>{(currentRide?.distance_km || 0).toFixed(1)} km</Text>
                   <Text style={styles.fareLabel}>Distance</Text>
                 </View>
-                <View style={styles.fareDivider} />
-                <View style={styles.fareItem}>
-                  <Ionicons name="time-outline" size={16} color={colors.textDim} />
+                <View style={styles.fareDivider} accessible={false} />
+                <View
+                  style={styles.fareItem}
+                  accessible={true}
+                  accessibilityRole="text"
+                  accessibilityLabel={`Estimated time: ${eta} minutes`}
+                  accessibilityLiveRegion="polite"
+                >
+                  <Ionicons name="time-outline" size={16} color={colors.textDim} accessible={false} />
                   <Text style={styles.fareValue}>{eta} min</Text>
                   <Text style={styles.fareLabel}>ETA</Text>
                 </View>
@@ -421,48 +484,70 @@ I've shared my live location with you for safety.
 
             {/* Live Sharing */}
             {isSharingLocation && (
-              <View style={styles.liveSharingBanner}>
-                <View style={styles.liveIndicator}>
-                  <View style={styles.liveDot} />
+              <View
+                style={styles.liveSharingBanner}
+                accessible={true}
+                accessibilityRole="text"
+                accessibilityLabel="Live location sharing is active"
+                accessibilityLiveRegion="polite"
+              >
+                <View style={styles.liveIndicator} accessible={false}>
+                  <View style={styles.liveDot} accessible={false} />
                   <Text style={styles.liveText}>LIVE</Text>
                 </View>
-                <Text style={styles.sharingText}>Location sharing active</Text>
-                <TouchableOpacity onPress={handleCopyTrackingLink}>
-                  <Ionicons name="copy-outline" size={18} color={colors.textDim} />
+                <Text style={styles.sharingText} accessible={false}>Location sharing active</Text>
+                <TouchableOpacity
+                  onPress={handleCopyTrackingLink}
+                  accessibilityLabel="Copy live tracking link"
+                  accessibilityRole="button"
+                  accessibilityHint="Copies the live tracking URL to your clipboard"
+                >
+                  <Ionicons name="copy-outline" size={18} color={colors.textDim} accessible={false} />
                 </TouchableOpacity>
               </View>
             )}
 
             {/* Action Row */}
             <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.actionBtn} onPress={handleShareTrip}>
-                <Ionicons name="share-outline" size={20} color={colors.text} />
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={handleShareTrip}
+                accessibilityLabel="Share trip"
+                accessibilityRole="button"
+                accessibilityHint="Shares your live trip details and tracking link with a contact"
+              >
+                <Ionicons name="share-outline" size={20} color={colors.text} accessible={false} />
                 <Text style={styles.actionBtnText}>Share Trip</Text>
               </TouchableOpacity>
               <View style={styles.actionBtn}>
                 <SOSButton rideId={rideId as string} onTrigger={triggerEmergency} />
-                <Text style={styles.actionBtnText}>SOS</Text>
+                <Text style={styles.actionBtnText} accessible={false}>SOS</Text>
               </View>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => {
-                setAlertState({
-                  visible: true,
-                  title: 'End ride early?',
-                  message: `You will be charged the full agreed fare of $${(currentRide?.total_fare || 0).toFixed(2)}. This cannot be undone.`,
-                  variant: 'warning',
-                  buttons: [
-                    { text: 'Continue Ride', style: 'cancel' },
-                    {
-                      text: 'End & Pay Full Fare', style: 'destructive',
-                      onPress: async () => {
-                        try { await api.post(`/drivers/rides/${currentRide?.id}/complete`); }
-                        catch(e) { console.log(e); }
-                        if (rideId) fetchRide(rideId);
+              <TouchableOpacity
+                style={styles.actionBtn}
+                accessibilityLabel="End ride"
+                accessibilityRole="button"
+                accessibilityHint="Ends your ride early. You will be charged the full fare."
+                onPress={() => {
+                  setAlertState({
+                    visible: true,
+                    title: 'End ride early?',
+                    message: `You will be charged the full agreed fare of $${(currentRide?.total_fare || 0).toFixed(2)}. This cannot be undone.`,
+                    variant: 'warning',
+                    buttons: [
+                      { text: 'Continue Ride', style: 'cancel' },
+                      {
+                        text: 'End & Pay Full Fare', style: 'destructive',
+                        onPress: async () => {
+                          try { await api.post(`/drivers/rides/${currentRide?.id}/complete`); }
+                          catch(e) { console.log(e); }
+                          if (rideId) fetchRide(rideId);
+                        },
                       },
-                    },
-                  ],
-                });
-              }}>
-                <Ionicons name="stop-circle-outline" size={20} color={colors.textDim} />
+                    ],
+                  });
+                }}>
+                <Ionicons name="stop-circle-outline" size={20} color={colors.textDim} accessible={false} />
                 <Text style={styles.actionBtnText}>End Ride</Text>
               </TouchableOpacity>
             </View>

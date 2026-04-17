@@ -6,7 +6,7 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web",
+    "web": "cross-env CI=1 expo start --web --port 19006",
     "lint": "expo lint",
     "test": "jest",
     "test:watch": "jest --watch",

@@ -121,23 +121,48 @@ export default function RateRideScreen() {
         >
           {/* Header */}
           <View style={styles.header}>
-            <View style={styles.arrivedBadge}>
-              <Ionicons name="checkmark-circle" size={20} color="#10B981" />
+            <View
+              style={styles.arrivedBadge}
+              accessible={true}
+              accessibilityRole="text"
+              accessibilityLabel="You arrived"
+            >
+              <Ionicons name="checkmark-circle" size={20} color="#10B981" accessible={false} />
               <Text style={styles.arrivedText}>You arrived!</Text>
             </View>
 
-            <Text style={styles.fareAmount}>${totalFare.toFixed(2)}</Text>
+            <Text
+              style={styles.fareAmount}
+              accessibilityRole="text"
+              accessibilityLabel={`Fare amount $${totalFare.toFixed(2)}`}
+            >
+              ${totalFare.toFixed(2)}
+            </Text>
 
-            <View style={styles.commissionBadge}>
+            <View
+              style={styles.commissionBadge}
+              accessible={true}
+              accessibilityRole="text"
+              accessibilityLabel="0% commission. Driver keeps 100% of fare"
+            >
               <Text style={styles.commissionText}>0% commission</Text>
               <Text style={styles.commissionSubtext}>Driver keeps 100% of fare</Text>
             </View>
           </View>
 
           {/* Driver Card */}
-          <View style={styles.driverCard}>
+          <View
+            style={styles.driverCard}
+            accessible={true}
+            accessibilityLabel={[
+              currentDriver?.name || 'Unknown driver',
+              [currentDriver?.vehicle_color, currentDriver?.vehicle_make, currentDriver?.vehicle_model].filter(Boolean).join(' ') || 'Unknown vehicle',
+              `Rating ${currentDriver?.rating || 'New'}`,
+              `License plate ${currentDriver?.license_plate || 'Pending'}`,
+            ].join(', ')}
+          >
             <View style={styles.driverAvatar}>
-              <Ionicons name="person" size={32} color={colors.textDim} />
+              <Ionicons name="person" size={32} color={colors.textDim} accessible={false} />
             </View>
             <View style={styles.driverInfo}>
               <Text style={styles.driverName}>{currentDriver?.name || 'Unknown'}</Text>
@@ -146,7 +171,7 @@ export default function RateRideScreen() {
               </Text>
               <View style={styles.driverStats}>
                 <View style={styles.statItem}>
-                  <Ionicons name="star" size={14} color="#FFB800" />
+                  <Ionicons name="star" size={14} color="#FFB800" accessible={false} />
                   <Text style={styles.statText}>{currentDriver?.rating || 'New'}</Text>
                 </View>
                 <View style={styles.statDivider} />
@@ -157,23 +182,28 @@ export default function RateRideScreen() {
 
           {/* Rating Section */}
           <View style={styles.ratingSection}>
-            <Text style={styles.ratingTitle}>How was your ride?</Text>
+            <Text style={styles.ratingTitle} accessibilityRole="header">How was your ride?</Text>
             <View style={styles.starsContainer}>
               {[1, 2, 3, 4, 5].map((star) => (
                 <TouchableOpacity
                   key={star}
                   onPress={() => handleStarPress(star)}
                   style={styles.starButton}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${star} ${star === 1 ? 'star' : 'stars'}`}
+                  accessibilityState={{ selected: star === rating }}
+                  accessibilityHint={`Set rating to ${star} ${star === 1 ? 'star' : 'stars'}`}
                 >
                   <Ionicons
                     name={star <= rating ? 'star' : 'star-outline'}
                     size={40}
                     color={star <= rating ? '#FFB800' : '#D1D5DB'}
+                    accessible={false}
                   />
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={styles.ratingLabel}>
+            <Text style={styles.ratingLabel} accessibilityRole="text" accessibilityLabel={`Current rating: ${rating === 5 ? 'Excellent' : rating === 4 ? 'Great' : rating === 3 ? 'Good' : rating === 2 ? 'Fair' : 'Poor'}`}>
               {rating === 5 ? 'Excellent!' : rating === 4 ? 'Great!' : rating === 3 ? 'Good' : rating === 2 ? 'Fair' : 'Poor'}
             </Text>
           </View>
@@ -190,6 +220,8 @@ export default function RateRideScreen() {
               value={comment}
               onChangeText={setComment}
               textAlignVertical="top"
+              accessibilityLabel="Comment about your ride, optional"
+              accessibilityHint="Share your experience with this driver"
             />
           </View>
 
@@ -207,6 +239,9 @@ export default function RateRideScreen() {
                     selectedTip === tip.amount && styles.tipButtonSelected
                   ]}
                   onPress={() => handleTipSelect(tip.amount)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Tip ${tip.label}`}
+                  accessibilityState={{ selected: selectedTip === tip.amount }}
                 >
                   <Text style={[
                     styles.tipButtonText,
@@ -222,6 +257,10 @@ export default function RateRideScreen() {
                   showCustomTip && styles.tipButtonSelected
                 ]}
                 onPress={handleCustomTipPress}
+                accessibilityRole="button"
+                accessibilityLabel="Custom tip amount"
+                accessibilityState={{ selected: showCustomTip }}
+                accessibilityHint="Enter a custom tip amount"
               >
                 <Text style={[
                   styles.tipButtonText,
@@ -234,7 +273,7 @@ export default function RateRideScreen() {
 
             {showCustomTip && (
               <View style={styles.customTipContainer}>
-                <Text style={styles.dollarSign}>$</Text>
+                <Text style={styles.dollarSign} accessible={false}>$</Text>
                 <TextInput
                   style={styles.customTipInput}
                   placeholder="0.00"
@@ -242,6 +281,7 @@ export default function RateRideScreen() {
                   keyboardType="decimal-pad"
                   value={customTip}
                   onChangeText={setCustomTip}
+                  accessibilityLabel="Custom tip amount in dollars"
                 />
               </View>
             )}
@@ -249,7 +289,11 @@ export default function RateRideScreen() {
 
           {/* Total */}
           {tipAmount > 0 && (
-            <View style={styles.totalSection}>
+            <View
+              style={styles.totalSection}
+              accessible={true}
+              accessibilityLabel={`Fare summary. Ride fare $${totalFare.toFixed(2)}, tip $${tipAmount.toFixed(2)}, total $${finalTotal.toFixed(2)}`}
+            >
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>Ride fare</Text>
                 <Text style={styles.totalValue}>${totalFare.toFixed(2)}</Text>
@@ -271,6 +315,9 @@ export default function RateRideScreen() {
             style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
             onPress={handleSubmit}
             disabled={isSubmitting}
+            accessibilityRole="button"
+            accessibilityLabel={isSubmitting ? 'Submitting rating' : tipAmount > 0 ? `Submit rating and pay $${finalTotal.toFixed(2)}` : 'Submit rating'}
+            accessibilityState={{ disabled: isSubmitting }}
           >
             <Text style={styles.submitButtonText}>
               {isSubmitting ? 'Submitting...' : tipAmount > 0 ? `Done - Pay $${finalTotal.toFixed(2)}` : 'Done'}
@@ -281,6 +328,9 @@ export default function RateRideScreen() {
           <TouchableOpacity
             style={styles.skipButton}
             onPress={() => router.replace('/(tabs)')}
+            accessibilityRole="button"
+            accessibilityLabel="Skip rating"
+            accessibilityHint="Go back to home without submitting a rating"
           >
             <Text style={styles.skipButtonText}>Skip rating</Text>
           </TouchableOpacity>

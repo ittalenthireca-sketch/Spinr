@@ -31,6 +31,7 @@ def _is_valid_uuid(value: str) -> bool:
 # --- File Upload Security ---
 ALLOWED_MIME_TYPES = {
     "image/jpeg",
+    "image/jpg",  # alias — some devices/pickers send this
     "image/png",
     "image/gif",
     "image/webp",
@@ -49,20 +50,28 @@ _MAGIC_BYTES = {
 
 def _validate_file_type(content: bytes, declared_type: str) -> None:
     """Validate file MIME type against allowlist and verify magic bytes."""
-    if declared_type not in ALLOWED_MIME_TYPES:
+    # Normalise image/jpg → image/jpeg before allowlist check
+    normalised = "image/jpeg" if declared_type == "image/jpg" else declared_type
+    if normalised not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"File type '{declared_type}' not allowed. Accepted: {', '.join(sorted(ALLOWED_MIME_TYPES))}",
         )
-    # Verify magic bytes match the declared content type
+    # Verify magic bytes: detect the actual type from the file header.
+    # Only reject if we can positively identify a DIFFERENT type from the bytes —
+    # unknown headers (e.g. HEIC, camera raw) pass through.
     if content:
         header = content[:4]
-        for magic, expected_type in _MAGIC_BYTES.items():
-            if header.startswith(magic) and declared_type != expected_type:
-                raise HTTPException(
-                    status_code=400,
-                    detail="File content does not match declared type",
-                )
+        detected_type: str | None = None
+        for magic, magic_mime in _MAGIC_BYTES.items():
+            if header.startswith(magic):
+                detected_type = magic_mime
+                break
+        if detected_type and detected_type != normalised:
+            raise HTTPException(
+                status_code=400,
+                detail="File content does not match declared type",
+            )
 
 
 # Routers
@@ -446,7 +455,18 @@ async def link_driver_document(doc_data: LinkDocumentRequest, current_user: dict
         "updated_at": datetime.utcnow(),
     }
 
-    await db_supabase.insert_one("driver_documents", doc_record)
+    try:
+        await db_supabase.insert_one("driver_documents", doc_record)
+    except Exception as e:
+        err = str(e)
+        # requirement_key column may not exist yet (migration 28 pending).
+        # Fall back to inserting without it so uploads aren't broken.
+        if "requirement_key" in err or "PGRST204" in err or "42703" in err:
+            logger.warning("requirement_key column missing — inserting without it. Run migration 28.")
+            doc_record_fallback = {k: v for k, v in doc_record.items() if k != "requirement_key"}
+            await db_supabase.insert_one("driver_documents", doc_record_fallback)
+        else:
+            raise
     # Stash the admin-facing expiry on the response so the caller can
     # display it back, without persisting a non-existent column.
     if doc_data.expiry_date:
@@ -736,28 +756,19 @@ async def upload_file(
 
         _validate_file_type(content, content_type)
 
-        # Generate a stable file_id and the URL clients use to fetch the blob
-        # back via get_document_file below.
-        file_id = str(uuid.uuid4())
-        public_url = f"/api/v1/documents/{file_id}"
-
-        # Only insert columns that actually exist on the Supabase
-        # `document_files` table. Historically this table was created with
-        # just { id, data, content_type, created_at } — adding columns like
-        # `size`, `filename`, `uploaded_by` to the insert raises PGRST204
-        # ("Could not find the X column of document_files in the schema
-        # cache"). We still return size/filename in the response so the
-        # client gets full metadata without us having to touch the schema.
-        record = {
-            "id": file_id,
-            "content_type": content_type,
-            "data": base64.b64encode(content).decode("utf-8"),
-            "created_at": datetime.utcnow().isoformat(),
-        }
+        # Preserve extension so Supabase serves the object with a sensible
+        # content-type when the browser fetches the public URL.
+        file_ext = os.path.splitext(original_filename)[1]
+        storage_key = f"{uuid.uuid4()}{file_ext}"
 
         # Upload to Supabase Storage
         try:
-            await db_supabase.insert_one("document_files", record)
+            supabase.storage.from_("driver-documents").upload(
+                file=content,
+                path=storage_key,
+                file_options={"content-type": content_type},
+            )
+            public_url = supabase.storage.from_("driver-documents").get_public_url(storage_key)
         except Exception as e:
             logger.error(f"Supabase Storage upload failed: {e}")
             raise HTTPException(status_code=500, detail=f"Storage upload failed: {e}") from e
@@ -765,7 +776,7 @@ async def upload_file(
         return {
             "success": True,
             "url": public_url,
-            "file_id": file_id,
+            "file_id": storage_key,
             "filename": original_filename,
             "content_type": content_type,
             "size": size,

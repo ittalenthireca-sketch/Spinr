@@ -1,8 +1,14 @@
 """
 Tests for chat message endpoints: GET + POST /rides/{id}/messages.
+
+Implementation notes:
+- get_ride_messages uses db_supabase.* calls directly (get_ride, get_rows).
+  Patch target: backend.routes.rides.db_supabase
+- send_ride_message uses db.* flat interface (find_one, insert_one).
+  Patch target: backend.routes.rides.db
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -25,13 +31,16 @@ class TestGetRideMessages:
             },
         ]
 
-        with patch("backend.routes.rides.db") as mock_db:
-            mock_db.rides.find_one = AsyncMock(return_value=ride)
-            mock_db.drivers.find_one = AsyncMock(return_value=None)
-            mock_cursor = MagicMock()
-            mock_cursor.sort.return_value = mock_cursor
-            mock_cursor.to_list = AsyncMock(return_value=messages_data)
-            mock_db.ride_messages.find.return_value = mock_cursor
+        async def _get_rows(table, *args, **kwargs):
+            if table == "drivers":
+                return []  # user_1 is a rider, not a driver
+            if table == "ride_messages":
+                return messages_data
+            return []
+
+        with patch("backend.routes.rides.db_supabase") as mock_dbs:
+            mock_dbs.get_ride = AsyncMock(return_value=ride)
+            mock_dbs.get_rows = AsyncMock(side_effect=_get_rows)
 
             from backend.routes.rides import get_ride_messages
 
@@ -43,9 +52,9 @@ class TestGetRideMessages:
     async def test_non_participant_gets_403(self):
         ride = {"id": "ride_1", "rider_id": "user_1", "driver_id": "driver_1"}
 
-        with patch("backend.routes.rides.db") as mock_db:
-            mock_db.rides.find_one = AsyncMock(return_value=ride)
-            mock_db.drivers.find_one = AsyncMock(return_value=None)
+        with patch("backend.routes.rides.db_supabase") as mock_dbs:
+            mock_dbs.get_ride = AsyncMock(return_value=ride)
+            mock_dbs.get_rows = AsyncMock(return_value=[])  # stranger is not a driver
 
             from backend.routes.rides import get_ride_messages
 
@@ -55,8 +64,8 @@ class TestGetRideMessages:
 
     @pytest.mark.asyncio
     async def test_ride_not_found_returns_404(self):
-        with patch("backend.routes.rides.db") as mock_db:
-            mock_db.rides.find_one = AsyncMock(return_value=None)
+        with patch("backend.routes.rides.db_supabase") as mock_dbs:
+            mock_dbs.get_ride = AsyncMock(return_value=None)
 
             from backend.routes.rides import get_ride_messages
 
@@ -66,20 +75,33 @@ class TestGetRideMessages:
 
 
 class TestSendRideMessage:
-    """Tests for POST /rides/{ride_id}/messages."""
+    """Tests for POST /rides/{ride_id}/messages.
+
+    send_ride_message uses db.find_one / db.insert_one (flat interface).
+    Patch target: backend.routes.rides.db
+    """
 
     @pytest.mark.asyncio
     async def test_rider_can_send_message(self):
         ride = {"id": "ride_1", "rider_id": "user_1", "driver_id": "driver_1"}
         driver_row = {"id": "driver_1", "user_id": "user_driver_1"}
 
+        def _find_one(table, filter_dict=None, **kw):
+            if table == "rides":
+                return ride
+            if table == "drivers":
+                if filter_dict and filter_dict.get("user_id") == "user_1":
+                    return None  # user_1 is a rider, not a driver
+                if filter_dict and filter_dict.get("id") == "driver_1":
+                    return driver_row
+            return None
+
         with (
             patch("backend.routes.rides.db") as mock_db,
             patch("backend.routes.rides.manager") as mock_manager,
         ):
-            mock_db.rides.find_one = AsyncMock(return_value=ride)
-            mock_db.drivers.find_one = AsyncMock(return_value=driver_row)
-            mock_db.ride_messages.insert_one = AsyncMock()
+            mock_db.find_one = AsyncMock(side_effect=_find_one)
+            mock_db.insert_one = AsyncMock()
             mock_manager.send_personal_message = AsyncMock()
 
             from backend.routes.rides import SendMessageRequest, send_ride_message
@@ -90,7 +112,7 @@ class TestSendRideMessage:
             assert result["success"] is True
             assert result["message"]["sender"] == "rider"
             assert result["message"]["text"] == "I'm at the corner"
-            mock_db.ride_messages.insert_one.assert_called_once()
+            mock_db.insert_one.assert_called_once()
             # WS forward to driver
             mock_manager.send_personal_message.assert_called_once()
             call_args = mock_manager.send_personal_message.call_args
@@ -101,8 +123,7 @@ class TestSendRideMessage:
         ride = {"id": "ride_1", "rider_id": "user_1", "driver_id": "driver_1"}
 
         with patch("backend.routes.rides.db") as mock_db:
-            mock_db.rides.find_one = AsyncMock(return_value=ride)
-            mock_db.drivers.find_one = AsyncMock(return_value=None)
+            mock_db.find_one = AsyncMock(side_effect=lambda table, *a, **kw: ride if table == "rides" else None)
 
             from backend.routes.rides import SendMessageRequest, send_ride_message
 
@@ -114,7 +135,7 @@ class TestSendRideMessage:
     @pytest.mark.asyncio
     async def test_ride_not_found_returns_404(self):
         with patch("backend.routes.rides.db") as mock_db:
-            mock_db.rides.find_one = AsyncMock(return_value=None)
+            mock_db.find_one = AsyncMock(return_value=None)
 
             from backend.routes.rides import SendMessageRequest, send_ride_message
 

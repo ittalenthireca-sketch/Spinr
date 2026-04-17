@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, Alert, Platform, Linking, Animated, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Platform, Linking, Animated, TouchableOpacity, ActivityIndicator } from 'react-native';
+import CustomAlert from '@shared/components/CustomAlert';
 import MapView, { Marker, Polyline, Heatmap, PROVIDER_GOOGLE } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
 import { Ionicons } from '@expo/vector-icons';
@@ -71,6 +72,9 @@ export default function DriverDashboard() {
     pulseAnim,
     slideUpAnim,
     fadeAnim,
+    dashAlert,
+    showDashAlert,
+    closeDashAlert,
   } = useDriverDashboard();
 
   // Route polyline coordinates for active rides
@@ -157,7 +161,7 @@ export default function DriverDashboard() {
   useEffect(() => {
     const { error } = useDriverStore.getState();
     if (error) {
-      Alert.alert('Error', error, [{ text: 'OK', onPress: clearError }]);
+      showDashAlert('Error', error, 'danger', [{ text: 'OK', style: 'default', onPress: clearError }]);
     }
   }, [useDriverStore.getState().error]);
 
@@ -175,9 +179,9 @@ export default function DriverDashboard() {
           title="Pickup"
           description={ride.pickup_address}
         >
-          <View style={styles.markerContainer}>
+          <View style={styles.markerContainer} accessible={false}>
             <View style={[styles.markerDot, { backgroundColor: colors.primary }]}>
-              <Ionicons name="location" size={16} color="#fff" />
+              <Ionicons name="location" size={16} color="#fff" accessible={false} />
             </View>
           </View>
         </Marker>
@@ -192,9 +196,9 @@ export default function DriverDashboard() {
           title="Dropoff"
           description={ride.dropoff_address}
         >
-          <View style={styles.markerContainer}>
+          <View style={styles.markerContainer} accessible={false}>
             <View style={[styles.markerDot, { backgroundColor: '#FF4757' }]}>
-              <Ionicons name="flag" size={16} color="#fff" />
+              <Ionicons name="flag" size={16} color="#fff" accessible={false} />
             </View>
           </View>
         </Marker>
@@ -214,36 +218,64 @@ export default function DriverDashboard() {
     const maxCountdown = configuredCountdownSeconds || 15;
     const progress = Math.max(0, Math.min(1, countdown / maxCountdown));
     const fare = (incomingRide.fare || 0).toFixed(2);
+    const distanceText = incomingRide.distance_km ? `${incomingRide.distance_km.toFixed(1)} km` : '';
+    const rideOfferLabel = [
+      `New ride request. Fare $${fare}.`,
+      `Pickup: ${incomingRide.pickup_address || 'unknown location'}.`,
+      `Dropoff: ${incomingRide.dropoff_address || 'unknown location'}.`,
+      distanceText ? `Distance: ${distanceText}.` : '',
+      `${countdown} seconds to respond.`,
+    ].filter(Boolean).join(' ');
 
     return (
       <View style={styles.rideOfferOverlay}>
-        <View style={styles.rideOfferContent}>
+        <View
+          accessible={true}
+          accessibilityRole="alert"
+          accessibilityLabel={rideOfferLabel}
+          style={styles.rideOfferContent}
+        >
           {/* Countdown timer bar at top */}
-          <View style={styles.timerBarContainer}>
+          <View style={styles.timerBarContainer} accessible={false}>
             <View style={[styles.timerBar, { width: `${progress * 100}%` }]} />
           </View>
 
           {/* Header: Countdown + Title */}
           <View style={styles.offerHeader}>
-            <View style={styles.countdownCircle}>
+            <View
+              accessible={true}
+              accessibilityRole="text"
+              accessibilityLabel={`${countdown} seconds remaining`}
+              style={styles.countdownCircle}
+            >
               <Text style={styles.countdownText}>{countdown}</Text>
             </View>
             <View style={{ flex: 1, marginLeft: 14 }}>
-              <Text style={styles.rideOfferTitle}>{t('rideOffer.newRideRequest')}</Text>
-              <View style={styles.rideTypeBadge}>
-                <Ionicons name="car-sport" size={12} color={colors.primary} />
-                <Text style={styles.rideTypeText}>{t('rideOffer.standardRide')}</Text>
+              <Text accessibilityRole="header" style={styles.rideOfferTitle}>{t('rideOffer.newRideRequest')}</Text>
+              <View style={styles.rideTypeBadge} accessible={false}>
+                <Ionicons name="car-sport" size={12} color={colors.primary} accessible={false} />
+                <Text accessibilityRole="text" style={styles.rideTypeText}>{t('rideOffer.standardRide')}</Text>
               </View>
             </View>
-            <View style={styles.fareContainer}>
+            <View
+              accessible={true}
+              accessibilityRole="text"
+              accessibilityLabel={`Fare $${fare}`}
+              style={styles.fareContainer}
+            >
               <Text style={styles.fareLabel}>{t('rideOffer.fare')}</Text>
               <Text style={styles.fareAmount}>${fare}</Text>
             </View>
           </View>
 
           {/* Route: Pickup & Dropoff */}
-          <View style={styles.routeContainer}>
-            <View style={styles.routeIconColumn}>
+          <View
+            accessible={true}
+            accessibilityRole="text"
+            accessibilityLabel={`Pickup: ${incomingRide.pickup_address || t('rideOffer.pickupLocation')}. Dropoff: ${incomingRide.dropoff_address || t('rideOffer.dropoffLocation')}.`}
+            style={styles.routeContainer}
+          >
+            <View style={styles.routeIconColumn} accessible={false}>
               <View style={[styles.routeDot, { backgroundColor: colors.primary }]} />
               <View style={styles.routeLine} />
               <View style={[styles.routeDot, { backgroundColor: '#FF4757' }]} />
@@ -266,26 +298,41 @@ export default function DriverDashboard() {
           </View>
 
           {/* Trip info badges */}
-          <View style={styles.tripInfoRow}>
+          <View style={styles.tripInfoRow} accessible={false}>
             {incomingRide.distance_km && (
-              <View style={styles.tripInfoBadge}>
-                <Ionicons name="navigate-outline" size={14} color={colors.primary} />
+              <View
+                accessible={true}
+                accessibilityRole="text"
+                accessibilityLabel={`Distance: ${incomingRide.distance_km.toFixed(1)} km`}
+                style={styles.tripInfoBadge}
+              >
+                <Ionicons name="navigate-outline" size={14} color={colors.primary} accessible={false} />
                 <Text style={styles.tripInfoText}>{incomingRide.distance_km.toFixed(1)} km</Text>
               </View>
             )}
             {incomingRide.duration_minutes && (
-              <View style={styles.tripInfoBadge}>
-                <Ionicons name="time-outline" size={14} color={colors.primary} />
+              <View
+                accessible={true}
+                accessibilityRole="text"
+                accessibilityLabel={`Estimated duration: ${Math.round(incomingRide.duration_minutes)} minutes`}
+                style={styles.tripInfoBadge}
+              >
+                <Ionicons name="time-outline" size={14} color={colors.primary} accessible={false} />
                 <Text style={styles.tripInfoText}>{Math.round(incomingRide.duration_minutes)} min</Text>
               </View>
             )}
             {incomingRide.rider_name && (
-              <View style={styles.tripInfoBadge}>
-                <Ionicons name="person-outline" size={14} color={colors.primary} />
+              <View
+                accessible={true}
+                accessibilityRole="text"
+                accessibilityLabel={`Rider: ${incomingRide.rider_name}${incomingRide.rider_rating ? `, rated ${incomingRide.rider_rating.toFixed(1)} stars` : ''}`}
+                style={styles.tripInfoBadge}
+              >
+                <Ionicons name="person-outline" size={14} color={colors.primary} accessible={false} />
                 <Text style={styles.tripInfoText}>{incomingRide.rider_name}</Text>
                 {incomingRide.rider_rating && (
                   <>
-                    <Ionicons name="star" size={12} color="#FFD700" />
+                    <Ionicons name="star" size={12} color="#FFD700" accessible={false} />
                     <Text style={styles.tripInfoText}>{incomingRide.rider_rating.toFixed(1)}</Text>
                   </>
                 )}
@@ -299,16 +346,22 @@ export default function DriverDashboard() {
               style={styles.declineBtn}
               onPress={() => declineRide(incomingRide.ride_id)}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Decline ride"
+              accessibilityHint="Dismisses this ride request"
             >
-              <Ionicons name="close-circle" size={24} color="#FF4757" />
+              <Ionicons name="close-circle" size={24} color="#FF4757" accessible={false} />
               <Text style={styles.declineText}>{t('rideOffer.decline')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.acceptBtn}
               onPress={() => acceptRide(incomingRide.ride_id)}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Accept ride"
+              accessibilityHint="Accepts this ride request and begins navigation to pickup"
             >
-              <Ionicons name="checkmark-circle" size={24} color="#fff" />
+              <Ionicons name="checkmark-circle" size={24} color="#fff" accessible={false} />
               <Text style={styles.acceptText}>{t('rideOffer.acceptRide')}</Text>
             </TouchableOpacity>
           </View>
@@ -320,14 +373,14 @@ export default function DriverDashboard() {
   if (!location?.coords) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ color: colors.text, marginTop: 12, fontSize: 15 }}>{t('home.gettingLocation')}</Text>
+        <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading location" />
+        <Text accessibilityRole="text" style={{ color: colors.text, marginTop: 12, fontSize: 15 }}>{t('home.gettingLocation')}</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} collapsable={false}>
       {/* Offline indicator — slides in from the top when network drops */}
       <OfflineBanner />
 
@@ -515,6 +568,14 @@ export default function DriverDashboard() {
           onRateRider={rateRider}
         />
       )}
+      <CustomAlert
+        visible={dashAlert.visible}
+        title={dashAlert.title}
+        message={dashAlert.message}
+        variant={dashAlert.variant}
+        buttons={dashAlert.buttons || [{ text: 'OK', style: 'default' }]}
+        onClose={closeDashAlert}
+      />
     </View>
   );
 }

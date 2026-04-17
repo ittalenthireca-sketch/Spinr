@@ -290,8 +290,23 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
             });
             driverData = driverRes.data as Driver;
             await appCache.set(CACHE_KEYS.DRIVER_PROFILE, driverData, CACHE_CONFIG.USER_PROFILE_TTL);
-          } catch (e) {
-            if (__DEV__) console.log('Failed to fetch driver data on init');
+          } catch (e: any) {
+            if (e?.response?.status === 404) {
+              // No driver row — auto-create one from the user's profile.
+              // The backend fills all required fields from the authenticated user.
+              if (__DEV__) console.log('[Auth] No driver row on init — auto-registering');
+              try {
+                const regRes = await api.post('/drivers/register', {}, {
+                  headers: { Authorization: `Bearer ${storedToken}` }
+                });
+                driverData = regRes.data as Driver;
+                await appCache.set(CACHE_KEYS.DRIVER_PROFILE, driverData, CACHE_CONFIG.USER_PROFILE_TTL);
+              } catch (regErr) {
+                if (__DEV__) console.log('[Auth] Auto-register failed on init:', regErr);
+              }
+            } else {
+              if (__DEV__) console.log('Failed to fetch driver data on init');
+            }
           }
         }
 
@@ -490,8 +505,20 @@ export const useAuthStore = create<AuthState>((set: any, get: any) => ({
         try {
           const driverRes = await api.get('/drivers/me');
           set({ driver: driverRes.data as Driver });
-        } catch (e) {
+        } catch (e: any) {
           if (__DEV__) console.log('refreshProfile: driver fetch failed', e);
+          if (e?.response?.status === 404) {
+            // No driver row — auto-create one silently so the driver can
+            // reach the home screen without going through become-driver.
+            if (__DEV__) console.log('[Auth] No driver row on refresh — auto-registering');
+            try {
+              const regRes = await api.post('/drivers/register', {});
+              set({ driver: regRes.data as Driver });
+            } catch (regErr) {
+              if (__DEV__) console.log('[Auth] Auto-register failed on refresh:', regErr);
+              set({ driver: null });
+            }
+          }
         }
       }
     } catch (e) {

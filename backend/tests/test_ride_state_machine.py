@@ -23,12 +23,16 @@ class TestRequireRideInState:
 
     async def _patched_db(self, find_results):
         """
-        Return a context manager that patches backend.routes.drivers.db
-        so find_one returns results in the order given.
+        Return a mock that patches backend.routes.drivers.db so that
+        db.find_one returns results in the order given.
+
+        routes/drivers.py uses the flat db_supabase interface:
+          await db.find_one("rides", {...})
+        so we attach side_effect to the top-level find_one, not to
+        a collection attribute (the old MongoDB style).
         """
         mock_db = MagicMock()
-        mock_db.rides = MagicMock()
-        mock_db.rides.find_one = AsyncMock(side_effect=find_results)
+        mock_db.find_one = AsyncMock(side_effect=find_results)
         return mock_db
 
     async def test_returns_ride_when_in_allowed_state(self):

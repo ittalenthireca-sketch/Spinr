@@ -229,27 +229,35 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
       style={[styles.container, { transform: [{ translateY: slideUpAnim }], opacity: fadeAnim }]}
     >
       {/* ── Status pill (floating) ──────────────────────────── */}
-      <View style={styles.statusPill}>
-        <View style={[styles.statusIconBg, { backgroundColor: `${status.color}15` }]}>
+      <View style={styles.statusPill} accessible={true} accessibilityRole="text" accessibilityLabel={`${status.label}. Earnings $${earnings.toFixed(2)}`} accessibilityLiveRegion="polite">
+        <View style={[styles.statusIconBg, { backgroundColor: `${status.color}15` }]} accessible={false}>
           <Ionicons name={status.icon} size={16} color={status.color} />
         </View>
-        <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
+        <Text style={[styles.statusText, { color: status.color }]} accessible={false}>{status.label}</Text>
         <View style={{ flex: 1 }} />
-        <Text style={styles.statusFare}>${earnings.toFixed(2)}</Text>
+        <Text style={styles.statusFare} accessible={false}>${earnings.toFixed(2)}</Text>
       </View>
 
       {/* ── Main card ───────────────────────────────────────── */}
       <View style={styles.sheet}>
 
         {/* ── Trip info row: earnings, distance, time ────── */}
-        <View style={styles.tripInfoRow}>
-          <View style={styles.tripInfoItem}>
+        <View
+          style={styles.tripInfoRow}
+          accessible={true}
+          accessibilityRole="text"
+          accessibilityLabel={`Your earnings $${earnings.toFixed(2)}. ${rideState === 'trip_in_progress' && hasLiveData ? `Distance traveled ${liveDistanceKm.toFixed(1)} km` : `Distance ${distKm.toFixed(1)} km`}. Estimated time ${durMin} minutes`}
+        >
+          <View style={styles.tripInfoItem} accessible={false}>
             <Text style={styles.tripInfoValue}>${earnings.toFixed(2)}</Text>
             <Text style={styles.tripInfoLabel}>{t('activeRide.yourEarnings')}</Text>
           </View>
-          <View style={styles.tripInfoDivider} />
-          <View style={styles.tripInfoItem}>
-            <Text style={styles.tripInfoValue}>
+          <View style={styles.tripInfoDivider} accessible={false} />
+          <View style={styles.tripInfoItem} accessible={false}>
+            <Text
+              style={styles.tripInfoValue}
+              accessibilityLiveRegion="polite"
+            >
               {rideState === 'trip_in_progress' && hasLiveData
                 ? `${liveDistanceKm.toFixed(1)} km`
                 : `${distKm.toFixed(1)} km`}
@@ -258,64 +266,80 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
               {rideState === 'trip_in_progress' && hasLiveData ? t('activeRide.traveled') : t('activeRide.distance')}
             </Text>
           </View>
-          <View style={styles.tripInfoDivider} />
-          <View style={styles.tripInfoItem}>
+          <View style={styles.tripInfoDivider} accessible={false} />
+          <View style={styles.tripInfoItem} accessible={false}>
             <Text style={styles.tripInfoValue}>{durMin} min</Text>
             <Text style={styles.tripInfoLabel}>{t('activeRide.estTime')}</Text>
           </View>
         </View>
 
         {/* ── Rider info ─────────────────────────────────── */}
-        <View style={styles.riderRow}>
-          <View style={styles.riderAvatar}>
+        <View
+          style={styles.riderRow}
+          accessible={true}
+          accessibilityRole="text"
+          accessibilityLabel={`Rider: ${riderName}${rider?.rating ? `, rated ${Number(rider.rating).toFixed(1)} stars` : ''}. Pickup: ${ride.pickup_address}. Dropoff: ${ride.dropoff_address}`}
+        >
+          <View style={styles.riderAvatar} accessible={false}>
             <Ionicons name="person" size={20} color="#999" />
           </View>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1 }} accessible={false}>
             <Text style={styles.riderName}>{riderName}</Text>
             {rider?.rating ? (
               <View style={styles.ratingRow}>
-                <Ionicons name="star" size={11} color="#F59E0B" />
+                <Ionicons name="star" size={11} color="#F59E0B" accessible={false} />
                 <Text style={styles.ratingText}>{Number(rider.rating).toFixed(1)}</Text>
               </View>
             ) : null}
           </View>
-          <TouchableOpacity style={styles.chatBtn}>
-            <Ionicons name="chatbubble-ellipses" size={18} color={ACCENT} />
+          <TouchableOpacity
+            style={styles.chatBtn}
+            accessibilityRole="button"
+            accessibilityLabel={`Message ${riderName}`}
+            accessibilityHint="Opens a chat with the rider"
+          >
+            <Ionicons name="chatbubble-ellipses" size={18} color={ACCENT} accessible={false} />
           </TouchableOpacity>
         </View>
 
         {/* ── Route addresses ────────────────────────────── */}
-        <View style={styles.routeCard}>
-          <View style={styles.routeRow}>
-            <View style={[styles.dot, { backgroundColor: ACCENT }]} />
+        <View style={styles.routeCard} accessible={false}>
+          <View style={styles.routeRow} accessible={false}>
+            <View style={[styles.dot, { backgroundColor: ACCENT }]} accessible={false} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.routeLabel}>{t('rideOffer.pickup')}</Text>
-              <Text style={styles.routeAddress} numberOfLines={2}>{ride.pickup_address}</Text>
+              <Text style={styles.routeLabel} accessibilityRole="text">{t('rideOffer.pickup')}</Text>
+              <Text style={styles.routeAddress} numberOfLines={2} accessibilityRole="text">{ride.pickup_address}</Text>
             </View>
           </View>
-          <View style={styles.routeLineContainer}>
-            <View style={styles.routeLine} />
+          <View style={styles.routeLineContainer} accessible={false}>
+            <View style={styles.routeLine} accessible={false} />
           </View>
-          <View style={styles.routeRow}>
-            <View style={[styles.dot, { backgroundColor: '#22C55E' }]} />
+          <View style={styles.routeRow} accessible={false}>
+            <View style={[styles.dot, { backgroundColor: '#22C55E' }]} accessible={false} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.routeLabel}>{t('rideOffer.dropoff')}</Text>
-              <Text style={styles.routeAddress} numberOfLines={2}>{ride.dropoff_address}</Text>
+              <Text style={styles.routeLabel} accessibilityRole="text">{t('rideOffer.dropoff')}</Text>
+              <Text style={styles.routeAddress} numberOfLines={2} accessibilityRole="text">{ride.dropoff_address}</Text>
             </View>
           </View>
         </View>
 
         {/* ── OTP section (arrived_at_pickup) ─────────────── */}
         {rideState === 'arrived_at_pickup' ? (
-          <View style={styles.otpCard}>
-            <View style={styles.otpHeader}>
-              <Ionicons name="shield-checkmark" size={18} color={ACCENT} />
-              <Text style={styles.otpTitle}>{t('activeRide.verifyRiderPin')}</Text>
+          <View style={styles.otpCard} accessible={false}>
+            <View style={styles.otpHeader} accessible={false}>
+              <Ionicons name="shield-checkmark" size={18} color={ACCENT} accessible={false} />
+              <Text style={styles.otpTitle} accessibilityRole="header">{t('activeRide.verifyRiderPin')}</Text>
             </View>
-            <Text style={styles.otpSub}>Ask rider for their 4-digit code</Text>
-            <View style={styles.otpBoxRow}>
+            <Text style={styles.otpSub} accessibilityRole="text">Ask rider for their 4-digit code</Text>
+            <View
+              style={styles.otpBoxRow}
+              accessible={true}
+              accessibilityRole="text"
+              accessibilityLabel={`PIN entry: ${otpInput.length} of 4 digits entered`}
+              accessibilityLiveRegion="polite"
+            >
               {[0, 1, 2, 3].map(i => (
-                <View key={i} style={[styles.otpBox, otpInput.length > i && styles.otpBoxFilled]}>
+                <View key={i} style={[styles.otpBox, otpInput.length > i && styles.otpBoxFilled]} accessible={false}>
                   <Text style={styles.otpDigit}>{otpInput[i] || ''}</Text>
                 </View>
               ))}
@@ -327,6 +351,9 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
                   style={[styles.kpBtn, key === null && { backgroundColor: 'transparent', elevation: 0 }]}
                   disabled={key === null}
                   activeOpacity={0.6}
+                  accessibilityRole={key === null ? undefined : 'button'}
+                  accessibilityLabel={key === 'del' ? 'Delete' : key !== null ? String(key) : undefined}
+                  accessible={key !== null}
                   onPress={() => {
                     if (key === 'del') setOtpInput(otpInput.slice(0, -1));
                     else if (key !== null && otpInput.length < 4) {
@@ -336,13 +363,20 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
                     }
                   }}
                 >
-                  {key === 'del' ? <Ionicons name="backspace-outline" size={20} color="#333" />
+                  {key === 'del' ? <Ionicons name="backspace-outline" size={20} color="#333" accessible={false} />
                     : key !== null ? <Text style={styles.kpText}>{key}</Text>
                     : null}
                 </TouchableOpacity>
               ))}
             </View>
-            <TouchableOpacity style={styles.skipBtn} onPress={onStartRide} disabled={isLoading}>
+            <TouchableOpacity
+              style={styles.skipBtn}
+              onPress={onStartRide}
+              disabled={isLoading}
+              accessibilityRole="button"
+              accessibilityLabel={t('activeRide.startWithoutPin')}
+              accessibilityHint="Starts the ride without verifying the rider's PIN"
+            >
               <Text style={styles.skipText}>{t('activeRide.startWithoutPin')}</Text>
             </TouchableOpacity>
           </View>
@@ -354,9 +388,12 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
             <TouchableOpacity
               style={[styles.actionPrimary, { backgroundColor: ACCENT }]}
               onPress={() => openMapsNavigation(ride.pickup_lat, ride.pickup_lng, 'Pickup')}
+              accessibilityRole="button"
+              accessibilityLabel={t('activeRide.navigateToPickup')}
+              accessibilityHint="Opens maps app with turn-by-turn directions to the pickup location"
             >
-              <Ionicons name="navigate" size={20} color="#fff" />
-              <Text style={styles.actionPrimaryText}>{t('activeRide.navigateToPickup')}</Text>
+              <Ionicons name="navigate" size={20} color="#fff" accessible={false} />
+              <Text style={styles.actionPrimaryText} accessible={false}>{t('activeRide.navigateToPickup')}</Text>
             </TouchableOpacity>
             {(() => {
               const atPickup = distanceToPickup === null || distanceToPickup === undefined || distanceToPickup <= 150;
@@ -365,11 +402,15 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
                   style={[styles.actionSecondary, !atPickup && styles.actionSecondaryDisabled]}
                   onPress={onArriveAtPickup}
                   disabled={isLoading || !atPickup}
+                  accessibilityRole="button"
+                  accessibilityLabel={distanceToPickup !== null && distanceToPickup !== undefined && distanceToPickup > 150 ? `${distanceToPickup} meters to pickup` : t('activeRide.arrivedAtPickup')}
+                  accessibilityHint={atPickup ? "Marks you as arrived at the pickup location" : "Available when you are within 150 meters of the pickup"}
+                  accessibilityState={{ disabled: isLoading || !atPickup }}
                 >
                   {isLoading ? <ActivityIndicator color={ACCENT} /> : (
                     <>
-                      <Ionicons name="flag" size={18} color={ACCENT} />
-                      <Text style={[styles.actionSecondaryText, { color: ACCENT }]}>
+                      <Ionicons name="flag" size={18} color={ACCENT} accessible={false} />
+                      <Text style={[styles.actionSecondaryText, { color: ACCENT }]} accessible={false}>
                         {distanceToPickup !== null && distanceToPickup !== undefined && distanceToPickup > 150 ? `${distanceToPickup}m` : t('activeRide.arrivedAtPickup')}
                       </Text>
                     </>
@@ -385,9 +426,12 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
             <TouchableOpacity
               style={[styles.actionPrimary, { backgroundColor: '#3B82F6' }]}
               onPress={() => openMapsNavigation(ride.dropoff_lat, ride.dropoff_lng, 'Dropoff')}
+              accessibilityRole="button"
+              accessibilityLabel={t('activeRide.navigateToDropoff')}
+              accessibilityHint="Opens maps app with turn-by-turn directions to the dropoff location"
             >
-              <Ionicons name="navigate" size={20} color="#fff" />
-              <Text style={styles.actionPrimaryText}>{t('activeRide.navigateToDropoff')}</Text>
+              <Ionicons name="navigate" size={20} color="#fff" accessible={false} />
+              <Text style={styles.actionPrimaryText} accessible={false}>{t('activeRide.navigateToDropoff')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionPrimary, { backgroundColor: '#22C55E' }]}
@@ -401,11 +445,15 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
                 ],
               )}
               disabled={isLoading}
+              accessibilityRole="button"
+              accessibilityLabel={t('activeRide.completeTrip')}
+              accessibilityHint={`Ends the trip and confirms earnings of $${(ride.total_fare ?? 0).toFixed(2)}`}
+              accessibilityState={{ disabled: isLoading }}
             >
               {isLoading ? <ActivityIndicator color="#fff" /> : (
                 <>
-                  <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                  <Text style={styles.actionPrimaryText}>{t('activeRide.completeTrip')}</Text>
+                  <Ionicons name="checkmark-circle" size={20} color="#fff" accessible={false} />
+                  <Text style={styles.actionPrimaryText} accessible={false}>{t('activeRide.completeTrip')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -425,8 +473,11 @@ export const ActiveRidePanel: React.FC<ActiveRidePanelProps> = ({
                 { text: t('activeRide.yesCancel'), style: 'destructive', onPress: onCancelRide },
               ],
             )}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel Ride"
+            accessibilityHint="Opens a confirmation dialog before cancelling this ride"
           >
-            <Text style={styles.cancelText}>Cancel Ride</Text>
+            <Text style={styles.cancelText} accessible={false}>Cancel Ride</Text>
           </TouchableOpacity>
         ) : null}
       </View>

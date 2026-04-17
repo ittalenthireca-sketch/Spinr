@@ -284,6 +284,22 @@ def test_client() -> TestClient:
 
 
 @pytest.fixture
+def admin_override():
+    """Override get_admin_user so authenticated admin routes see a fake admin.
+
+    FastAPI binds `Depends(get_admin_user)` at import time, so patching the
+    module attribute has no effect — the canonical pattern for admin-route
+    tests is to install an override on the app.
+    """
+    from backend.server import app
+    from dependencies import get_admin_user
+
+    app.dependency_overrides[get_admin_user] = lambda: {"id": "admin_1", "role": "admin"}
+    yield
+    app.dependency_overrides.pop(get_admin_user, None)
+
+
+@pytest.fixture
 def async_http_client() -> httpx.AsyncClient:
     """Create an async HTTP client for testing."""
     transport = httpx.AsyncHTTPTransport(app=MagicMock())
@@ -324,19 +340,34 @@ _STALE_TEST_CLASSES: frozenset[str] = frozenset(
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Auto-skip collected items belonging to known-stale test classes.
+    """Auto-skip collected items.
 
-    Matching is by substring on nodeid (e.g.
-    `tests/test_rides.py::TestRideCreation::test_foo`) so that renaming a
-    test method still keeps the skip applied until the class is removed
-    from `_STALE_TEST_CLASSES`.
+    1. ``integration``-marked tests when Supabase credentials are absent.
+       CI injects SUPABASE_URL as an empty string when the secret is not set,
+       which os.environ.setdefault() cannot override — this catches that case.
 
-    Set ``SPINR_RUN_STALE=1`` in the environment to disable the skip for
-    local triage runs while repairing classes — never used in CI.
+    2. Known-stale test classes that pre-date the Supabase migration.
+       Set ``SPINR_RUN_STALE=1`` to re-enable them locally for triage.
+
+    Matching for (2) is by substring on nodeid so that renaming a test method
+    still keeps the skip applied until the class is removed from
+    ``_STALE_TEST_CLASSES``.
     """
+    # --- integration gate ---------------------------------------------------
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not (supabase_url and supabase_key):
+        no_supabase = pytest.mark.skip(
+            reason="Supabase not configured (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY absent or empty)"
+        )
+        for item in items:
+            if item.get_closest_marker("integration"):
+                item.add_marker(no_supabase)
+
+    # --- stale-class gate ---------------------------------------------------
     if os.environ.get("SPINR_RUN_STALE") == "1":
         return
-    skip_marker = pytest.mark.skip(reason="Stale — pre-Supabase API shape. Rewrite tracked in P1 test-suite repair.")
+    stale_skip = pytest.mark.skip(reason="Stale — pre-Supabase API shape. Rewrite tracked in P1 test-suite repair.")
     for item in items:
         if any(stale in item.nodeid for stale in _STALE_TEST_CLASSES):
-            item.add_marker(skip_marker)
+            item.add_marker(stale_skip)

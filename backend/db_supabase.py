@@ -1487,3 +1487,121 @@ async def delete_expired_ride_idempotency_keys(older_than_hours: int = 24) -> in
     except Exception as e:  # noqa: BLE001
         logger.warning(f"delete_expired_ride_idempotency_keys failed: {e}")
         return 0
+
+
+# ── Corporate Accounts (B2B v1) ──────────────────────────────────────
+
+
+async def list_corporate_accounts_filtered(
+    *,
+    status: Optional[str],
+    size_tier: Optional[str],
+    search: Optional[str],
+    skip: int,
+    limit: int,
+) -> List[Dict[str, Any]]:
+    """List corporate accounts with optional status / size-tier / name-search filters."""
+
+    def _fn():
+        q = supabase.table("corporate_accounts").select("*")
+        if status:
+            q = q.eq("status", status)
+        if size_tier:
+            q = q.eq("size_tier", size_tier)
+        if search:
+            # Escape PostgREST ilike special chars to prevent filter injection
+            # (same pattern as get_all_corporate_accounts above).
+            safe = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            safe = re.sub(r"[,\.\(\)]", "", safe)
+            q = q.or_(f"name.ilike.%{safe}%,legal_name.ilike.%{safe}%")
+        q = q.order("created_at", desc=True).range(skip, skip + limit - 1)
+        return _rows_from_res(q.execute())
+
+    return await run_sync(_fn)
+
+
+async def update_corporate_account_status(company_id: str, status: str) -> Optional[Dict[str, Any]]:
+    def _fn():
+        res = supabase.table("corporate_accounts").update({"status": status}).eq("id", company_id).execute()
+        return _single_row_from_res(res)
+
+    return await run_sync(_fn)
+
+
+async def record_kyb_decision(
+    *,
+    company_id: str,
+    reviewer_id: str,
+    approved: bool,
+    note: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """Record a KYB approve/reject decision. Approval flips status to active.
+
+    Rejection flips status to suspended so the company can re-upload and be
+    re-reviewed without creating a fresh account.
+    """
+    new_status = "active" if approved else "suspended"
+    patch = {
+        "status": new_status,
+        "kyb_reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "kyb_reviewed_by": reviewer_id,
+    }
+    if note:
+        patch["kyb_review_note"] = note  # column added in a follow-up migration if desired
+
+    def _fn():
+        res = supabase.table("corporate_accounts").update(patch).eq("id", company_id).execute()
+        return _single_row_from_res(res)
+
+    return await run_sync(_fn)
+
+
+async def get_corporate_members_for_user(user_id: str) -> List[Dict[str, Any]]:
+    """Return all corporate_members rows for a user where status='active'.
+
+    Hot path: called on every work-profile check.
+    """
+
+    def _fn():
+        res = (
+            supabase.table("corporate_members")
+            .select("id, company_id, role, policy_override")
+            .eq("user_id", user_id)
+            .eq("status", "active")
+            .execute()
+        )
+        return _rows_from_res(res)
+
+    return await run_sync(_fn)
+
+
+_KYB_CONTENT_EXT = {
+    "application/pdf": "pdf",
+    "image/png": "png",
+    "image/jpeg": "jpg",
+}
+
+
+async def create_kyb_upload_url(*, company_id: str, content_type: str, ttl_seconds: int = 3600) -> Dict[str, Any]:
+    """Return a short-lived signed upload URL for a KYB document.
+
+    The bucket 'kyb-documents' is private; the caller uploads with the
+    returned URL and we later record the object path on the corporate
+    account when review completes.
+    """
+    import uuid
+    from datetime import timedelta
+
+    ext = _KYB_CONTENT_EXT[content_type]
+    path = f"kyb/{company_id}/{uuid.uuid4()}.{ext}"
+
+    def _fn():
+        return supabase.storage.from_("kyb-documents").create_signed_upload_url(path)
+
+    signed = await run_sync(_fn)
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat()
+    return {
+        "signed_url": signed["signed_url"],
+        "path": signed.get("path", path),
+        "expires_at": expires_at,
+    }

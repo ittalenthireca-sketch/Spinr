@@ -91,8 +91,11 @@
   "private": true,
   "packageManager": "yarn@1.22.22",
   "scripts": {
+    "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "web": "cross-env CI=1 expo start --web --port 19007",
+    "build:web": "expo export --platform web",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"

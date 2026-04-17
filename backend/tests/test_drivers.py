@@ -57,9 +57,10 @@ class TestDriverAvailability:
 
     @pytest.fixture
     def driver_collection(self):
-        from backend.db import db
-
-        return db.drivers
+        # Legacy fixture — the test bodies call db_supabase functions directly,
+        # not via a collection object. Return None so pytest can inject the fixture
+        # without crashing on the removed db.drivers attribute.
+        return None
 
     @pytest.mark.asyncio
     async def test_set_driver_available(self, driver_collection, mock_supabase_client):

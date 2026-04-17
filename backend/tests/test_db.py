@@ -12,6 +12,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.mark.skip(reason="MockCursor was part of the legacy MongoDB adapter removed in the Supabase migration")
 class TestMockCursor:
     """Tests for the MockCursor class."""
 
@@ -46,6 +47,7 @@ class TestMockCursor:
         assert result is mock_cursor
 
 
+@pytest.mark.skip(reason="Collection was part of the legacy MongoDB adapter removed in the Supabase migration")
 class TestCollection:
     """Tests for the Collection class."""
 
@@ -72,6 +74,9 @@ class TestCollection:
         assert cursor.filter is None
 
 
+@pytest.mark.skip(
+    reason="db_supabase is a flat module — collection attribute checks no longer apply after Supabase migration"
+)
 class TestDBWrapper:
     """Tests for the main DB wrapper."""
 
@@ -121,6 +126,9 @@ class TestDBWrapper:
             assert hasattr(db, collection_name), f"Missing collection: {collection_name}"
 
 
+@pytest.mark.skip(
+    reason="Collection-style db.users interface removed in Supabase migration — use db_supabase.find_one('users', ...) instead"
+)
 class TestUserCollection:
     """Tests for user-specific database operations."""
 
@@ -178,6 +186,7 @@ class TestUserCollection:
         assert result["phone"] == "+1234567890"
 
 
+@pytest.mark.skip(reason="Collection-style db.drivers interface removed in Supabase migration")
 class TestDriverCollection:
     """Tests for driver-specific database operations."""
 
@@ -231,6 +240,7 @@ class TestDriverCollection:
         await driver_collection.update_one({"id": "driver_123"}, {"$set": {"is_available": True}})
 
 
+@pytest.mark.skip(reason="Collection-style db.rides interface removed in Supabase migration")
 class TestRideCollection:
     """Tests for ride-specific database operations."""
 
@@ -285,6 +295,7 @@ class TestRideCollection:
         # The count handling depends on implementation
 
 
+@pytest.mark.skip(reason="Collection-style db.otps / db.otp_records interface removed in Supabase migration")
 class TestOTPRecordOperations:
     """Tests for OTP record operations."""
 

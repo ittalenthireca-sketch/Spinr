@@ -141,27 +141,34 @@ export default function HomeScreen() {
         <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <View style={styles.avatarContainer}>
+              <View style={styles.avatarContainer} accessible={false}>
                 {user?.profile_image ? (
                   <Image
                     source={{ uri: user.profile_image }}
                     style={styles.avatarImage}
+                    accessible={false}
+                    importantForAccessibility="no"
                   />
                 ) : (
-                  <Ionicons name="person" size={20} color={colors.textDim} />
+                  <Ionicons name="person" size={20} color={colors.textDim} accessible={false} />
                 )}
               </View>
-              <View style={styles.greetingContainer}>
+              <View
+                style={styles.greetingContainer}
+                accessible={true}
+                accessibilityLabel={[getGreeting(), user?.first_name, temperature !== null ? `${temperature} degrees Celsius` : null].filter(Boolean).join(', ')}
+                accessibilityRole="text"
+              >
                 <View style={styles.greetingRow}>
-                  <Text style={styles.greetingText}>
+                  <Text style={styles.greetingText} importantForAccessibility="no">
                     {getGreeting()}
                   </Text>
                   {temperature !== null && (
-                    <Text style={styles.temperatureText}> · {temperature}°C</Text>
+                    <Text style={styles.temperatureText} importantForAccessibility="no"> · {temperature}°C</Text>
                   )}
                 </View>
                 {user?.first_name && (
-                  <Text style={styles.cityText}>{user.first_name}</Text>
+                  <Text style={styles.cityText} importantForAccessibility="no">{user.first_name}</Text>
                 )}
               </View>
             </View>
@@ -190,15 +197,17 @@ export default function HomeScreen() {
             showsUserLocation={true}
             userInterfaceStyle={isDark ? "dark" : "light"}
             onRegionChangeComplete={setRegion}
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
           />
         ) : (
           <View style={styles.mapPlaceholder}>
             {location ? (
-              <ActivityIndicator size="large" color={colors.primary} />
+              <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading map" />
             ) : (
-              <View style={styles.mapOverlay}>
-                <Ionicons name="location" size={40} color={colors.primary} />
-                <Text style={styles.mapText}>Locating...</Text>
+              <View style={styles.mapOverlay} accessible={true} accessibilityLabel="Locating your position" accessibilityRole="text">
+                <Ionicons name="location" size={40} color={colors.primary} accessible={false} />
+                <Text style={styles.mapText} importantForAccessibility="no">Locating...</Text>
               </View>
             )}
           </View>
@@ -206,38 +215,46 @@ export default function HomeScreen() {
 
         {/* Map Controls Container - Right Side */}
         {/* Map Controls Container - Right Side */}
-        <View style={styles.mapControls}>
-          <TouchableOpacity style={styles.mapControlButton} onPress={() => {
-            if (region && mapRef.current) {
-              mapRef.current.animateToRegion({
-                ...region,
-                latitudeDelta: region.latitudeDelta / 2,
-                longitudeDelta: region.longitudeDelta / 2,
-              }, 500);
-            }
-          }}>
-            <Ionicons name="add" size={24} color={colors.text} />
+        <View style={styles.mapControls} accessible={false}>
+          <TouchableOpacity
+            style={styles.mapControlButton}
+            accessibilityLabel="Zoom in"
+            accessibilityRole="button"
+            onPress={() => {
+              if (region && mapRef.current) {
+                mapRef.current.animateToRegion({
+                  ...region,
+                  latitudeDelta: region.latitudeDelta / 2,
+                  longitudeDelta: region.longitudeDelta / 2,
+                }, 500);
+              }
+            }}>
+            <Ionicons name="add" size={24} color={colors.text} accessible={false} />
           </TouchableOpacity>
-          <View style={styles.divider} />
-          <TouchableOpacity style={styles.mapControlButton} onPress={() => {
-            if (region && mapRef.current) {
-              mapRef.current.animateToRegion({
-                ...region,
-                latitudeDelta: region.latitudeDelta * 2,
-                longitudeDelta: region.longitudeDelta * 2,
-              }, 500);
-            }
-          }}>
-            <Ionicons name="remove" size={24} color={colors.text} />
+          <View style={styles.divider} accessible={false} />
+          <TouchableOpacity
+            style={styles.mapControlButton}
+            accessibilityLabel="Zoom out"
+            accessibilityRole="button"
+            onPress={() => {
+              if (region && mapRef.current) {
+                mapRef.current.animateToRegion({
+                  ...region,
+                  latitudeDelta: region.latitudeDelta * 2,
+                  longitudeDelta: region.longitudeDelta * 2,
+                }, 500);
+              }
+            }}>
+            <Ionicons name="remove" size={24} color={colors.text} accessible={false} />
           </TouchableOpacity>
         </View>
 
         {/* SOS Button - Left Side */}
         <TouchableOpacity
           style={styles.sosButton}
-          accessibilityLabel="SOS emergency button"
+          accessibilityLabel="SOS"
           accessibilityRole="button"
-          accessibilityHint="Alerts emergency services"
+          accessibilityHint="Triggers an emergency alert and contacts emergency services"
           onPress={() => {
             setAlertState({
               visible: true,
@@ -247,12 +264,17 @@ export default function HomeScreen() {
             });
           }}
         >
-          <Ionicons name="shield-checkmark" size={24} color="#FFFFFF" />
-          <Text style={styles.sosText}>SOS</Text>
+          <Ionicons name="shield-checkmark" size={24} color="#FFFFFF" accessible={false} />
+          <Text style={styles.sosText} accessible={false}>SOS</Text>
         </TouchableOpacity>
 
         {/* Current Location Button - Fixed Logic */}
-        <TouchableOpacity style={styles.locationButton} onPress={async () => {
+        <TouchableOpacity
+          style={styles.locationButton}
+          accessibilityLabel="Center map on my location"
+          accessibilityRole="button"
+          accessibilityHint="Moves the map to show your current position"
+          onPress={async () => {
           if (mapRef.current) {
             let loc = location;
             if (!loc) {
@@ -278,7 +300,7 @@ export default function HomeScreen() {
             }
           }
         }}>
-          <Ionicons name="locate" size={24} color={colors.text} />
+          <Ionicons name="locate" size={24} color={colors.text} accessible={false} />
         </TouchableOpacity>
       </View>
 
@@ -295,8 +317,8 @@ export default function HomeScreen() {
             accessibilityRole="button"
             accessibilityHint="Opens the destination search screen"
           >
-            <Ionicons name="search" size={22} color={colors.primary} />
-            <Text style={styles.searchPlaceholder}>Where to?</Text>
+            <Ionicons name="search" size={22} color={colors.primary} accessible={false} />
+            <Text style={styles.searchPlaceholder} accessible={false}>Where to?</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.aiButton}
@@ -314,50 +336,78 @@ export default function HomeScreen() {
             accessibilityRole="button"
             accessibilityHint="AI-powered booking assistant, coming soon"
           >
-            <View style={styles.aiIconGlow} />
-            <Ionicons name="sparkles" size={20} color="#FFFFFF" />
-            <Text style={styles.aiButtonText}>AI</Text>
+            <View style={styles.aiIconGlow} accessible={false} />
+            <Ionicons name="sparkles" size={20} color="#FFFFFF" accessible={false} />
+            <Text style={styles.aiButtonText} accessible={false}>AI</Text>
           </TouchableOpacity>
         </View>
 
         {/* Quick Actions */}
         <View style={styles.quickActions}>
-          <TouchableOpacity style={styles.quickAction} onPress={() => handleQuickAction('home')}>
-            <View style={styles.quickActionIcon}>
-              <Ionicons name="home" size={22} color={colors.primary} />
+          <TouchableOpacity
+            style={styles.quickAction}
+            onPress={() => handleQuickAction('home')}
+            accessibilityLabel="Go home"
+            accessibilityRole="button"
+            accessibilityHint="Search for a ride to your saved home address"
+          >
+            <View style={styles.quickActionIcon} accessible={false}>
+              <Ionicons name="home" size={22} color={colors.primary} accessible={false} />
             </View>
-            <Text style={styles.quickActionText}>Home</Text>
+            <Text style={styles.quickActionText} accessible={false}>Home</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.quickAction} onPress={() => handleQuickAction('work')}>
-            <View style={styles.quickActionIcon}>
-              <Ionicons name="briefcase" size={22} color={colors.primary} />
+          <TouchableOpacity
+            style={styles.quickAction}
+            onPress={() => handleQuickAction('work')}
+            accessibilityLabel="Go to work"
+            accessibilityRole="button"
+            accessibilityHint="Search for a ride to your saved work address"
+          >
+            <View style={styles.quickActionIcon} accessible={false}>
+              <Ionicons name="briefcase" size={22} color={colors.primary} accessible={false} />
             </View>
-            <Text style={styles.quickActionText}>Work</Text>
+            <Text style={styles.quickActionText} accessible={false}>Work</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.quickAction} onPress={() => handleQuickAction('saved')}>
-            <View style={styles.quickActionIcon}>
-              <Ionicons name="star" size={22} color={colors.primary} />
+          <TouchableOpacity
+            style={styles.quickAction}
+            onPress={() => handleQuickAction('saved')}
+            accessibilityLabel="Go to a saved place"
+            accessibilityRole="button"
+            accessibilityHint="Search for a ride to one of your saved addresses"
+          >
+            <View style={styles.quickActionIcon} accessible={false}>
+              <Ionicons name="star" size={22} color={colors.primary} accessible={false} />
             </View>
-            <Text style={styles.quickActionText}>Saved</Text>
+            <Text style={styles.quickActionText} accessible={false}>Saved</Text>
           </TouchableOpacity>
         </View>
 
         {/* Promo Banner */}
         {showPromo && (
-          <View style={styles.promoBanner}>
-            <View style={styles.promoIconContainer}>
-              <Ionicons name="megaphone" size={20} color={colors.primary} />
+          <View
+            style={styles.promoBanner}
+            accessible={true}
+            accessibilityLabel="Ride local. Support local. We take 0% commission. 100% of your fare goes to your driver."
+            accessibilityRole="text"
+          >
+            <View style={styles.promoIconContainer} accessible={false}>
+              <Ionicons name="megaphone" size={20} color={colors.primary} accessible={false} />
             </View>
-            <View style={styles.promoContent}>
+            <View style={styles.promoContent} importantForAccessibility="no-hide-descendants">
               <Text style={styles.promoTitle}>Ride local. Support local.</Text>
               <Text style={styles.promoText}>
                 We take 0% commission. 100% of{"\n"}your fare goes to your driver.
               </Text>
             </View>
-            <TouchableOpacity onPress={() => setShowPromo(false)} style={styles.promoClose}>
-              <Ionicons name="close" size={20} color={colors.textDim} />
+            <TouchableOpacity
+              onPress={() => setShowPromo(false)}
+              style={styles.promoClose}
+              accessibilityLabel="Dismiss promotion"
+              accessibilityRole="button"
+            >
+              <Ionicons name="close" size={20} color={colors.textDim} accessible={false} />
             </TouchableOpacity>
           </View>
         )}
