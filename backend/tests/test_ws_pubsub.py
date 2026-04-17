@@ -21,12 +21,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_pubsub() -> "utils.ws_pubsub._WSPubSub":  # type: ignore[name-defined]
+def _make_pubsub():
     """Return a fresh _WSPubSub with no Redis attached."""
     from utils.ws_pubsub import _WSPubSub
     return _WSPubSub()
