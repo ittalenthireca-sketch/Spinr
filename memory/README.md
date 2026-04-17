@@ -36,6 +36,10 @@ Project-level narrative memory is scattered across root-level reports:
   catalog of hard-coded values, secrets, keys, URLs, identities, and
   business constants across every module. Kept until testing finishes;
   then walk §8 top-to-bottom for remediation.
+- [`MODULE_ENHANCEMENT_REGISTRY.md`](./MODULE_ENHANCEMENT_REGISTRY.md) —
+  folder-by-folder enhancement backlog across every top-level module
+  (user-facing apps, backend/data, infra/ops/docs, auxiliary/meta,
+  root cleanup). Priority-ranked top-15 summary in §5.3.
 
 ## Suggested layout when populated further
 
