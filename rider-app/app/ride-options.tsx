@@ -233,11 +233,16 @@ export default function RideOptionsScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#1A1A1A" />
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
+        >
+          <Ionicons name="arrow-back" size={24} color="#1A1A1A" accessible={false} />
         </TouchableOpacity>
         {dropoff && (
-          <View style={styles.destinationChip}>
+          <View style={styles.destinationChip} accessible={true} accessibilityRole="text" accessibilityLabel={`Going to ${dropoff.address}`}>
             <Text style={styles.destinationChipText} numberOfLines={1}>
               GOING TO {dropoff.address.toUpperCase()}
             </Text>
@@ -370,8 +375,15 @@ export default function RideOptionsScreen() {
           style={styles.promoBanner}
           onPress={() => router.push('/payment-confirm')}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={
+            appliedPromo.discount_type === 'percentage'
+              ? `Promo ${appliedPromo.code} applied: save ${appliedPromo.discount_value}%${appliedPromo.max_discount ? `, up to $${appliedPromo.max_discount}` : ''}`
+              : `Promo ${appliedPromo.code} applied: save $${appliedPromo.discount_value.toFixed(2)}`
+          }
+          accessibilityHint="View payment details"
         >
-          <Ionicons name="pricetag" size={16} color="#10B981" />
+          <Ionicons name="pricetag" size={16} color="#10B981" accessible={false} />
           <Text style={styles.promoBannerText}>
             {appliedPromo.discount_type === 'percentage'
               ? `Save ${appliedPromo.discount_value}% off${appliedPromo.max_discount ? ` ($${appliedPromo.max_discount} max)` : ''}`
@@ -382,22 +394,22 @@ export default function RideOptionsScreen() {
           {availablePromos.length > 1 && (
             <Text style={styles.promoBannerMore}>{availablePromos.length - 1} more</Text>
           )}
-          <Ionicons name="chevron-forward" size={14} color="#999" />
+          <Ionicons name="chevron-forward" size={14} color="#999" accessible={false} />
         </TouchableOpacity>
       )}
 
       {/* Options Header */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Choose a ride</Text>
-        <View style={styles.commissionBadge}>
+        <Text style={styles.sectionTitle} accessibilityRole="header">Choose a ride</Text>
+        <View style={styles.commissionBadge} accessible={true} accessibilityRole="text" accessibilityLabel="0% commission">
           <Text style={styles.commissionText}>% 0% Commission</Text>
         </View>
       </View>
 
       {/* Busy Banner */}
       {allUnavailable && !isLoading && (
-        <View style={styles.busyBanner}>
-          <Ionicons name="warning" size={20} color="#B91C1C" />
+        <View style={styles.busyBanner} accessible={true} accessibilityRole="text" accessibilityLabel="No cars available right now. Please try again later.">
+          <Ionicons name="warning" size={20} color="#B91C1C" accessible={false} />
           <Text style={styles.busyText}>No cars available right now. Please try again later.</Text>
         </View>
       )}
@@ -414,6 +426,20 @@ export default function RideOptionsScreen() {
             const isSelected = selectedIndex === index;
             const isAvailable = estimate.available;
 
+            const etaLabel = isAvailable
+              ? (estimate.eta_minutes ? `${estimate.eta_minutes} minutes away` : 'Nearby')
+              : 'No drivers nearby';
+            const driverCountLabel = isAvailable && estimate.driver_count > 0
+              ? `, ${estimate.driver_count} driver${estimate.driver_count > 1 ? 's' : ''}`
+              : '';
+            const surgeLabel = (estimate.surge_multiplier ?? 1) > 1.0
+              ? `, ${estimate.surge_multiplier}x surge pricing`
+              : '';
+            const priceLabel = appliedPromo && appliedPromo.discount_amount > 0 && isSelected
+              ? `was $${estimate.total_fare.toFixed(2)}, now $${Math.max(0, estimate.total_fare - appliedPromo.discount_amount).toFixed(2)}`
+              : `$${estimate.total_fare.toFixed(2)}`;
+            const cardA11yLabel = `${estimate.vehicle_type.name}, ${estimate.vehicle_type.capacity} seats, ${etaLabel}${driverCountLabel}${surgeLabel}, ${priceLabel}${!isAvailable ? ', unavailable' : ''}`;
+
             return (
               <TouchableOpacity
                 key={estimate.vehicle_type.id}
@@ -425,6 +451,9 @@ export default function RideOptionsScreen() {
                 onPress={() => handleSelect(index)}
                 activeOpacity={isAvailable ? 0.7 : 1}
                 disabled={!isAvailable}
+                accessibilityRole="button"
+                accessibilityLabel={cardA11yLabel}
+                accessibilityState={{ selected: isSelected && isAvailable, disabled: !isAvailable }}
               >
                 {/* Car Image */}
                 <View style={[styles.carImageContainer, !isAvailable && { opacity: 0.4 }]}>
@@ -433,26 +462,27 @@ export default function RideOptionsScreen() {
                       source={{ uri: estimate.vehicle_type.image_url }}
                       style={styles.carImage}
                       resizeMode="contain"
+                      accessible={false}
                     />
                   ) : (
                     <View style={styles.carIconFallback}>
-                      <Ionicons name="car" size={36} color="#666" />
+                      <Ionicons name="car" size={36} color="#666" accessible={false} />
                     </View>
                   )}
                 </View>
 
                 {/* Info */}
-                <View style={[styles.optionInfo, !isAvailable && { opacity: 0.4 }]}>
+                <View style={[styles.optionInfo, !isAvailable && { opacity: 0.4 }]} importantForAccessibility="no-hide-descendants">
                   <View style={styles.optionNameRow}>
                     <Text style={styles.optionName}>{estimate.vehicle_type.name}</Text>
                     {(estimate.surge_multiplier ?? 1) > 1.0 && (
-                      <View style={styles.surgeBadge}>
-                        <Ionicons name="trending-up" size={10} color="#fff" />
+                      <View style={styles.surgeBadge} accessible={false}>
+                        <Ionicons name="trending-up" size={10} color="#fff" accessible={false} />
                         <Text style={styles.surgeBadgeText}>{estimate.surge_multiplier}x</Text>
                       </View>
                     )}
-                    <View style={styles.capacityBadge}>
-                      <Ionicons name="person" size={12} color="#666" />
+                    <View style={styles.capacityBadge} accessible={false}>
+                      <Ionicons name="person" size={12} color="#666" accessible={false} />
                       <Text style={styles.capacityText}>{estimate.vehicle_type.capacity}</Text>
                     </View>
                   </View>
@@ -473,7 +503,7 @@ export default function RideOptionsScreen() {
                 </View>
 
                 {/* Price — with promo struck-through */}
-                <View style={[styles.optionPriceContainer, !isAvailable && { opacity: 0.4 }]}>
+                <View style={[styles.optionPriceContainer, !isAvailable && { opacity: 0.4 }]} importantForAccessibility="no-hide-descendants">
                   {appliedPromo && appliedPromo.discount_amount > 0 && isSelected ? (
                     <View style={{ alignItems: 'flex-end' }}>
                       <Text style={styles.optionPriceStruck}>${estimate.total_fare.toFixed(2)}</Text>
@@ -486,7 +516,7 @@ export default function RideOptionsScreen() {
                   )}
                   {isSelected && isAvailable && (
                     <View style={styles.selectedCheck}>
-                      <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
+                      <Ionicons name="checkmark-circle" size={22} color={colors.primary} accessible={false} />
                     </View>
                   )}
                 </View>
@@ -500,9 +530,9 @@ export default function RideOptionsScreen() {
       {!isLoading && !allUnavailable && estimates.length > 0 && selectedEstimate && (
         <View style={styles.footer}>
           {/* Schedule Toggle */}
-          <View style={styles.scheduleRow}>
+          <View style={styles.scheduleRow} accessible={true} accessibilityRole="text">
             <View style={styles.scheduleInfo}>
-              <Ionicons name="time-outline" size={20} color="#1A1A1A" />
+              <Ionicons name="time-outline" size={20} color="#1A1A1A" accessible={false} />
               <Text style={styles.scheduleLabel}>Schedule later</Text>
             </View>
             <Switch
@@ -510,6 +540,7 @@ export default function RideOptionsScreen() {
               onValueChange={handleToggleSchedule}
               trackColor={{ false: '#D1D5DB', true: colors.primary + '60' }}
               thumbColor={isScheduling ? colors.primary : '#F3F4F6'}
+              accessibilityLabel="Schedule ride for later"
             />
           </View>
 
@@ -518,8 +549,11 @@ export default function RideOptionsScreen() {
             <TouchableOpacity
               style={styles.scheduledTimeRow}
               onPress={() => setShowDatePicker(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Scheduled for ${scheduledTime.toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' })} at ${scheduledTime.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}`}
+              accessibilityHint="Change the scheduled date and time"
             >
-              <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+              <Ionicons name="calendar-outline" size={18} color={colors.primary} accessible={false} />
               <Text style={styles.scheduledTimeText}>
                 {scheduledTime.toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' })}{' '}
                 at {scheduledTime.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}
@@ -535,10 +569,10 @@ export default function RideOptionsScreen() {
                 <View style={styles.modalOverlay}>
                   <View style={styles.pickerContainer}>
                     <View style={styles.pickerHeader}>
-                      <TouchableOpacity onPress={handleCancelSchedule}>
+                      <TouchableOpacity onPress={handleCancelSchedule} accessibilityRole="button" accessibilityLabel="Cancel date selection">
                         <Text style={styles.pickerCancelText}>Cancel</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={confirmDateSelection}>
+                      <TouchableOpacity onPress={confirmDateSelection} accessibilityRole="button" accessibilityLabel="Confirm date, go to time selection">
                         <Text style={styles.pickerDoneText}>Next</Text>
                       </TouchableOpacity>
                     </View>
@@ -571,10 +605,10 @@ export default function RideOptionsScreen() {
                 <View style={styles.modalOverlay}>
                   <View style={styles.pickerContainer}>
                     <View style={styles.pickerHeader}>
-                      <TouchableOpacity onPress={handleCancelSchedule}>
+                      <TouchableOpacity onPress={handleCancelSchedule} accessibilityRole="button" accessibilityLabel="Cancel time selection">
                         <Text style={styles.pickerCancelText}>Cancel</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={() => confirmTimeSelection()}>
+                      <TouchableOpacity onPress={() => confirmTimeSelection()} accessibilityRole="button" accessibilityLabel="Confirm scheduled time">
                         <Text style={styles.pickerDoneText}>Done</Text>
                       </TouchableOpacity>
                     </View>
@@ -599,15 +633,20 @@ export default function RideOptionsScreen() {
           )}
 
           {/* Payment method row */}
-          <TouchableOpacity style={styles.paymentRow}>
-            <Ionicons name="card" size={20} color="#1A1A1A" />
+          <TouchableOpacity
+            style={styles.paymentRow}
+            accessibilityRole="button"
+            accessibilityLabel="Payment method: Visa ending in 4242"
+            accessibilityHint="Change payment method"
+          >
+            <Ionicons name="card" size={20} color="#1A1A1A" accessible={false} />
             <Text style={styles.paymentText}>Visa •••• 4242</Text>
-            <Ionicons name="chevron-forward" size={16} color="#999" />
+            <Ionicons name="chevron-forward" size={16} color="#999" accessible={false} />
           </TouchableOpacity>
 
           {/* Cancellation policy disclosure (UX-001) */}
-          <View style={styles.cancelPolicyRow}>
-            <Ionicons name="information-circle-outline" size={15} color="#6B7280" />
+          <View style={styles.cancelPolicyRow} accessible={true} accessibilityRole="text" accessibilityLabel="Free cancellation within 2 minutes of driver acceptance. A cancellation fee applies after.">
+            <Ionicons name="information-circle-outline" size={15} color="#6B7280" accessible={false} />
             <Text style={styles.cancelPolicyText}>
               Free cancellation within 2 min of driver acceptance. A cancellation fee applies after.
             </Text>
@@ -618,6 +657,9 @@ export default function RideOptionsScreen() {
             onPress={handleConfirm}
             activeOpacity={0.8}
             disabled={!selectedEstimate.available}
+            accessibilityRole="button"
+            accessibilityLabel={`${isScheduling ? 'Schedule' : 'Confirm'} ${selectedEstimate.vehicle_type.name}`}
+            accessibilityState={{ disabled: !selectedEstimate.available }}
           >
             <Text style={styles.confirmButtonText}>
               {isScheduling ? 'Schedule' : 'Confirm'} {selectedEstimate.vehicle_type.name}

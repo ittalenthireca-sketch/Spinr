@@ -137,11 +137,11 @@ export default function RideStatusScreen() {
   // handleSimulateArrival and handleRideComplete removed for production
 
   const renderSearching = () => (
-    <View style={styles.statusContainer}>
-      <Animated.View style={[styles.searchingCircle, { transform: [{ scale: pulseAnim }] }]}>
-        <Ionicons name="car" size={40} color="#FFFFFF" />
+    <View style={styles.statusContainer} accessibilityLiveRegion="polite">
+      <Animated.View style={[styles.searchingCircle, { transform: [{ scale: pulseAnim }] }]} accessible={false}>
+        <Ionicons name="car" size={40} color="#FFFFFF" accessible={false} />
       </Animated.View>
-      <Text style={styles.statusTitle}>Finding your driver</Text>
+      <Text style={styles.statusTitle} accessibilityRole="header">Finding your driver</Text>
       <Text style={styles.statusSubtitle}>This usually takes 1-3 minutes</Text>
     </View>
   );
@@ -149,41 +149,46 @@ export default function RideStatusScreen() {
   const renderDriverAssigned = () => (
     <View style={styles.driverContainer}>
       {/* Driver Info Card */}
-      <View style={styles.driverCard}>
+      <View style={styles.driverCard} accessible={true} accessibilityLabel={`Driver ${currentDriver?.name}, rated ${currentDriver?.rating} stars, ${currentDriver?.total_rides} trips. ${currentDriver?.vehicle_color} ${currentDriver?.vehicle_make} ${currentDriver?.vehicle_model}, plate ${currentDriver?.license_plate}`}>
         <View style={styles.driverHeader}>
-          <View style={styles.driverAvatar}>
-            <Ionicons name="person" size={32} color={colors.textDim} />
+          <View style={styles.driverAvatar} accessible={false}>
+            <Ionicons name="person" size={32} color={colors.textDim} accessible={false} />
           </View>
-          <View style={styles.driverInfo}>
+          <View style={styles.driverInfo} accessible={false}>
             <Text style={styles.driverName}>{currentDriver?.name}</Text>
             <View style={styles.ratingContainer}>
-              <Ionicons name="star" size={14} color="#FFB800" />
+              <Ionicons name="star" size={14} color="#FFB800" accessible={false} />
               <Text style={styles.ratingText}>{currentDriver?.rating}</Text>
               <Text style={styles.tripsText}>• {currentDriver?.total_rides} trips</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.callButton}>
-            <Ionicons name="call" size={22} color={colors.primary} />
+          <TouchableOpacity
+            style={styles.callButton}
+            accessibilityLabel={`Call ${currentDriver?.name}`}
+            accessibilityRole="button"
+            accessibilityHint="Opens your phone to call the driver"
+          >
+            <Ionicons name="call" size={22} color={colors.primary} accessible={false} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.vehicleCard}>
+        <View style={styles.vehicleCard} accessible={false}>
           <View style={styles.vehicleInfo}>
             <Text style={styles.vehicleMake}>
               {currentDriver?.vehicle_color} {currentDriver?.vehicle_make} {currentDriver?.vehicle_model}
             </Text>
             <Text style={styles.licensePlate}>{currentDriver?.license_plate}</Text>
           </View>
-          <Ionicons name="car" size={32} color={colors.primary} />
+          <Ionicons name="car" size={32} color={colors.primary} accessible={false} />
         </View>
       </View>
 
       {/* Status Info */}
-      <View style={styles.statusInfo}>
-        <View style={styles.statusIcon}>
-          <Ionicons name="navigate" size={24} color={colors.primary} />
+      <View style={styles.statusInfo} accessible={true} accessibilityLabel="Driver is on the way, arriving in approximately 5 minutes" accessibilityLiveRegion="polite">
+        <View style={styles.statusIcon} accessible={false}>
+          <Ionicons name="navigate" size={24} color={colors.primary} accessible={false} />
         </View>
-        <View style={styles.statusTextContainer}>
+        <View style={styles.statusTextContainer} accessible={false}>
           <Text style={styles.statusLabel}>Driver is on the way</Text>
           <Text style={styles.statusEta}>Arriving in ~5 min</Text>
         </View>
@@ -204,43 +209,53 @@ export default function RideStatusScreen() {
   const renderDriverArrived = () => (
     <View style={styles.arrivedContainer}>
       {/* OTP Display */}
-      <View style={styles.otpCard}>
-        <Text style={styles.otpLabel}>Share this PIN with your driver</Text>
-        <View style={styles.otpBox}>
+      <View
+        style={styles.otpCard}
+        accessible={true}
+        accessibilityLabel={`Your ride PIN is ${currentRide?.pickup_otp?.split('').join(' ')}. Share this with your driver to start the trip.`}
+        accessibilityLiveRegion="polite"
+      >
+        <Text style={styles.otpLabel} accessible={false}>Share this PIN with your driver</Text>
+        <View style={styles.otpBox} accessible={false}>
           {currentRide?.pickup_otp.split('').map((digit, index) => (
             <View key={index} style={styles.otpDigit}>
               <Text style={styles.otpDigitText}>{digit}</Text>
             </View>
           ))}
         </View>
-        <Text style={styles.otpHint}>Driver will enter this to start the trip</Text>
+        <Text style={styles.otpHint} accessible={false}>Driver will enter this to start the trip</Text>
       </View>
 
       {/* Driver Info */}
-      <View style={styles.driverCard}>
+      <View style={styles.driverCard} accessible={true} accessibilityLabel={`Driver ${currentDriver?.name} has arrived at pickup. ${currentDriver?.vehicle_color} ${currentDriver?.vehicle_make} ${currentDriver?.vehicle_model}, plate ${currentDriver?.license_plate}`}>
         <View style={styles.driverHeader}>
-          <View style={styles.driverAvatar}>
-            <Ionicons name="person" size={32} color={colors.textDim} />
+          <View style={styles.driverAvatar} accessible={false}>
+            <Ionicons name="person" size={32} color={colors.textDim} accessible={false} />
           </View>
-          <View style={styles.driverInfo}>
+          <View style={styles.driverInfo} accessible={false}>
             <Text style={styles.driverName}>{currentDriver?.name}</Text>
             <Text style={styles.arrivedText}>
-              <Ionicons name="checkmark-circle" size={14} color="#10B981" /> Arrived at pickup
+              <Ionicons name="checkmark-circle" size={14} color="#10B981" accessible={false} /> Arrived at pickup
             </Text>
           </View>
-          <TouchableOpacity style={styles.callButton}>
-            <Ionicons name="call" size={22} color={colors.primary} />
+          <TouchableOpacity
+            style={styles.callButton}
+            accessibilityLabel={`Call ${currentDriver?.name}`}
+            accessibilityRole="button"
+            accessibilityHint="Opens your phone to call the driver"
+          >
+            <Ionicons name="call" size={22} color={colors.primary} accessible={false} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.vehicleCard}>
+        <View style={styles.vehicleCard} accessible={false}>
           <View style={styles.vehicleInfo}>
             <Text style={styles.vehicleMake}>
               {currentDriver?.vehicle_color} {currentDriver?.vehicle_make} {currentDriver?.vehicle_model}
             </Text>
             <Text style={styles.licensePlate}>{currentDriver?.license_plate}</Text>
           </View>
-          <Ionicons name="car" size={32} color={colors.primary} />
+          <Ionicons name="car" size={32} color={colors.primary} accessible={false} />
         </View>
       </View>
 
@@ -251,30 +266,40 @@ export default function RideStatusScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-          <Ionicons name="close" size={24} color={colors.text} />
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={handleBackPress}
+          accessibilityLabel={currentRide ? (currentRide.status === 'searching' ? 'Cancel search' : 'Cancel ride') : 'Go back'}
+          accessibilityRole="button"
+          accessibilityHint="Shows cancellation options"
+        >
+          <Ionicons name="close" size={24} color={colors.text} accessible={false} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>
+        <Text
+          style={styles.headerTitle}
+          accessibilityRole="header"
+          accessibilityLiveRegion="polite"
+        >
           {!currentRide && 'Loading...'}
           {currentRide?.status === 'searching' && 'Finding driver...'}
           {(currentRide?.status === 'driver_assigned' || currentRide?.status === 'driver_accepted') && 'Driver on the way'}
           {currentRide?.status === 'driver_arrived' && 'Driver arrived'}
         </Text>
-        <View style={{ width: 44 }} />
+        <View style={{ width: 44 }} accessible={false} />
       </View>
 
       {/* Map Placeholder */}
-      <View style={styles.mapPlaceholder}>
-        <Ionicons name="map" size={48} color="#CCC" />
+      <View style={styles.mapPlaceholder} accessible={false} importantForAccessibility="no-hide-descendants">
+        <Ionicons name="map" size={48} color="#CCC" accessible={false} />
         <Text style={styles.mapText}>Map View</Text>
       </View>
 
       {/* Bottom Sheet */}
       <View style={styles.bottomSheet}>
         {!currentRide ? (
-          <View style={styles.statusContainer}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.statusTitle}>Loading ride details...</Text>
+          <View style={styles.statusContainer} accessibilityLiveRegion="polite">
+            <ActivityIndicator size="large" color={colors.primary} accessible={false} />
+            <Text style={styles.statusTitle} accessibilityRole="text">Loading ride details...</Text>
           </View>
         ) : (
           <>
@@ -283,8 +308,14 @@ export default function RideStatusScreen() {
             {currentRide.status === 'driver_arrived' && renderDriverArrived()}
 
             {/* Cancel Button */}
-            <TouchableOpacity style={styles.cancelButton} onPress={handleBackPress}>
-              <Text style={styles.cancelButtonText}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={handleBackPress}
+              accessibilityLabel={currentRide.status === 'searching' ? 'Cancel Search' : 'Cancel Ride'}
+              accessibilityRole="button"
+              accessibilityHint="Shows cancellation options"
+            >
+              <Text style={styles.cancelButtonText} accessible={false}>
                 {currentRide.status === 'searching' ? 'Cancel Search' : 'Cancel Ride'}
               </Text>
             </TouchableOpacity>
@@ -294,26 +325,26 @@ export default function RideStatusScreen() {
               <View style={styles.devBar}>
                 <Text style={styles.devLabel}>DEV: {currentRide.status}</Text>
                 {currentRide.status === 'searching' && (
-                  <TouchableOpacity style={styles.devBtn} onPress={async () => {
+                  <TouchableOpacity style={styles.devBtn} accessibilityLabel="DEV: Assign Driver" accessibilityRole="button" onPress={async () => {
                     try { await simulateDriverArrival(); } catch {}
                     if (rideId) fetchRide(rideId);
                   }}>
-                    <Text style={styles.devBtnText}>Assign Driver</Text>
+                    <Text style={styles.devBtnText} accessible={false}>Assign Driver</Text>
                   </TouchableOpacity>
                 )}
                 {(currentRide.status === 'driver_assigned' || currentRide.status === 'driver_accepted') && (
-                  <TouchableOpacity style={styles.devBtn} onPress={async () => {
+                  <TouchableOpacity style={styles.devBtn} accessibilityLabel="DEV: Arrive at Pickup" accessibilityRole="button" onPress={async () => {
                     try { await api.post(`/drivers/rides/${currentRide.id}/arrive`); } catch {}
                     if (rideId) fetchRide(rideId);
                   }}>
-                    <Text style={styles.devBtnText}>Arrive at Pickup</Text>
+                    <Text style={styles.devBtnText} accessible={false}>Arrive at Pickup</Text>
                   </TouchableOpacity>
                 )}
                 {currentRide.status === 'driver_arrived' && (
-                  <TouchableOpacity style={styles.devBtn} onPress={() => {
+                  <TouchableOpacity style={styles.devBtn} accessibilityLabel="DEV: Go to Arriving Screen" accessibilityRole="button" onPress={() => {
                     router.replace({ pathname: '/driver-arriving', params: { rideId: currentRide.id } } as any);
                   }}>
-                    <Text style={styles.devBtnText}>Go to Arriving Screen</Text>
+                    <Text style={styles.devBtnText} accessible={false}>Go to Arriving Screen</Text>
                   </TouchableOpacity>
                 )}
               </View>

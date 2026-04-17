@@ -4,6 +4,7 @@ Import all route modules and combine them here
 """
 
 import asyncio
+import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
@@ -166,6 +167,30 @@ async def health_deep():
         # No heartbeat rows and no fetch error — tolerate (fresh deploy
         # or self-hosted without the worker process running).
         components["workers"] = "empty"
+
+    # --- WebSocket pub/sub (Redis fan-out) ------------------------------------
+    # Reports whether the distributed WS pub/sub is active.  A missing or
+    # inactive pub/sub in production is a correctness hazard (ride events
+    # only reach clients on the same VM), so we surface it explicitly.
+    # In dev / single-machine mode the pubsub is intentionally inactive
+    # (no Redis URL configured) and we report "disabled" rather than "error"
+    # so the probe doesn't alert on expected dev behaviour.
+    try:
+        from utils.ws_pubsub import pubsub as _ws_pubsub
+
+        if _ws_pubsub.active:
+            components["ws_pubsub"] = "ok"
+        elif _ws_pubsub._url:
+            # URL was set but the connection failed or the consumer died.
+            components["ws_pubsub"] = "error"
+            if os.environ.get("ENV", "").lower() == "production":
+                overall_ok = False
+        else:
+            # No URL — single-machine / dev mode.  Not an error.
+            components["ws_pubsub"] = "disabled"
+    except Exception as e:
+        logger.warning(f"/health/deep: ws_pubsub check failed: {e}")
+        components["ws_pubsub"] = "unknown"
 
     payload: dict[str, object] = {
         "status": "healthy" if overall_ok else "degraded",

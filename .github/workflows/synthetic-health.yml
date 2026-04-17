@@ -50,6 +50,11 @@ jobs:
   health-shallow:
     name: "GET /health (shallow liveness)"
     runs-on: ubuntu-latest
+    # Skip entirely until infrastructure is provisioned. Set the
+    # SPINR_DEPLOY_ACTIVE repository variable to 'true' in
+    # Settings → Secrets and variables → Actions → Variables
+    # once spinr-api.fly.dev and spinr-api-staging.fly.dev are live.
+    if: vars.SPINR_DEPLOY_ACTIVE == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -89,6 +94,7 @@ jobs:
   health-deep:
     name: "GET /health/deep (readiness)"
     runs-on: ubuntu-latest
+    if: vars.SPINR_DEPLOY_ACTIVE == 'true'
     # Only probe prod-deep — staging's /health/deep is flakier (Redis
     # scaled-to-zero, seed data gaps) and would bury real incidents
     # in noise.
@@ -126,7 +132,7 @@ jobs:
     # Run less often (GH cron has no per-job schedule so we gate via
     # the minute, and even the 5-min granularity makes 15-min
     # intervals approximate).
-    if: "${{ github.event.schedule == '*/15 * * * *' || github.event_name == 'workflow_dispatch' }}"
+    if: "vars.SPINR_DEPLOY_ACTIVE == 'true' && (github.event.schedule == '*/15 * * * *' || github.event_name == 'workflow_dispatch')"
     steps:
       - name: POST /rides/estimate against staging
         shell: bash
@@ -175,7 +181,7 @@ jobs:
   k6-latency-synthetic:
     name: "k6 latency synthetic (smoke scenario)"
     runs-on: ubuntu-latest
-    if: "${{ github.event.schedule == '*/30 * * * *' || github.event_name == 'workflow_dispatch' }}"
+    if: "vars.SPINR_DEPLOY_ACTIVE == 'true' && (github.event.schedule == '*/30 * * * *' || github.event_name == 'workflow_dispatch')"
     steps:
       - uses: actions/checkout@v4
 
