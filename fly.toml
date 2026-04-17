@@ -29,7 +29,7 @@ primary_region = "sjc"
   # the app pool so riders always have an API to talk to during deploys.
   auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ["app"]
 
 # Per-process VM sizing. The worker is pure background I/O (no HTTP
