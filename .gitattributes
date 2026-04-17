@@ -1,0 +1,7 @@
+# Force LF line endings for all CI/workflow files.
+# GitHub Actions YAML parser requires LF; CRLF causes the runner to
+# fail before queuing any jobs (the workflow name reads as the file path).
+.github/workflows/*.yml  text  eol=lf
+
+# Default: auto-normalize text files
+*  text=auto
