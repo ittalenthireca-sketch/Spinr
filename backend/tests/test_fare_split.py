@@ -50,15 +50,24 @@ SAMPLE_PARTICIPANT = {
 
 
 def make_mock_db():
+    """Build a mock matching the flat db_supabase interface used by routes/fare_split.py.
+
+    The route calls db.find_one(table, filter), db.insert_one(table, data),
+    db.update_one(table, filter, patch), and db.get_rows(table, filter, **kwargs).
+    """
     mock = MagicMock()
+    mock.find_one = AsyncMock(return_value=None)
+    mock.insert_one = AsyncMock(return_value=None)
+    mock.update_one = AsyncMock(return_value=None)
     mock.get_rows = AsyncMock(return_value=[])
-    for col in ("rides", "fare_splits", "fare_split_participants", "users", "wallets", "wallet_transactions"):
-        col_mock = MagicMock()
-        col_mock.find_one = AsyncMock(return_value=None)
-        col_mock.insert_one = AsyncMock(return_value=None)
-        col_mock.update_one = AsyncMock(return_value=None)
-        setattr(mock, col, col_mock)
     return mock
+
+
+def _find_one_dispatch(**table_returns):
+    """Return an AsyncMock that dispatches find_one calls by table name."""
+    def _dispatch(table, *args, **kwargs):
+        return table_returns.get(table)
+    return AsyncMock(side_effect=_dispatch)
 
 
 @pytest.fixture
@@ -80,9 +89,12 @@ class TestCreateFareSplit:
     def test_create_split_success(self, client):
         participant_user = {"id": "user_456", "phone": "+9876543210"}
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=SAMPLE_RIDE)
-        mock_db.fare_splits.find_one = AsyncMock(return_value=None)
-        mock_db.users.find_one = AsyncMock(return_value=participant_user)
+        # Route: find_one("rides") → ride, find_one("fare_splits") → None, find_one("users") → participant
+        mock_db.find_one = _find_one_dispatch(
+            rides=SAMPLE_RIDE,
+            fare_splits=None,
+            users=participant_user,
+        )
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post(
@@ -100,7 +112,7 @@ class TestCreateFareSplit:
 
     def test_ride_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None → ride not found
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post(
@@ -113,7 +125,7 @@ class TestCreateFareSplit:
     def test_not_ride_requester_returns_403(self, client):
         other_ride = {**SAMPLE_RIDE, "rider_id": "other_user"}
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=other_ride)
+        mock_db.find_one = AsyncMock(return_value=other_ride)
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post(
@@ -126,8 +138,8 @@ class TestCreateFareSplit:
 
     def test_split_already_exists_returns_400(self, client):
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=SAMPLE_RIDE)
-        mock_db.fare_splits.find_one = AsyncMock(return_value=SAMPLE_SPLIT)
+        # Route: find_one("rides") → SAMPLE_RIDE, find_one("fare_splits") → SAMPLE_SPLIT
+        mock_db.find_one = _find_one_dispatch(rides=SAMPLE_RIDE, fare_splits=SAMPLE_SPLIT)
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post(
@@ -141,9 +153,8 @@ class TestCreateFareSplit:
     def test_three_way_split_calculates_shares(self, client):
         """$30 split 3 ways = $10 each."""
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=SAMPLE_RIDE)
-        mock_db.fare_splits.find_one = AsyncMock(return_value=None)
-        mock_db.users.find_one = AsyncMock(return_value=None)
+        # Route: find_one("rides") → SAMPLE_RIDE, others return None
+        mock_db.find_one = _find_one_dispatch(rides=SAMPLE_RIDE)
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post(
@@ -163,7 +174,7 @@ class TestGetFareSplit:
     def test_requester_can_view_split(self, client):
         participants = [{**SAMPLE_PARTICIPANT, "user_id": "user_456"}]
         mock_db = make_mock_db()
-        mock_db.fare_splits.find_one = AsyncMock(return_value=SAMPLE_SPLIT)
+        mock_db.find_one = AsyncMock(return_value=SAMPLE_SPLIT)
         mock_db.get_rows = AsyncMock(return_value=participants)
 
         with patch("routes.fare_split.db", mock_db):
@@ -177,7 +188,7 @@ class TestGetFareSplit:
 
     def test_split_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.fare_splits.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.get("/api/v1/fare-split/bad_split")
@@ -189,7 +200,7 @@ class TestGetFareSplit:
         other_split = {**SAMPLE_SPLIT, "requester_id": "other_user"}
         participants = [{"id": "p1", "user_id": "third_party", "share_amount": 15.0, "status": "pending"}]
         mock_db = make_mock_db()
-        mock_db.fare_splits.find_one = AsyncMock(return_value=other_split)
+        mock_db.find_one = AsyncMock(return_value=other_split)
         mock_db.get_rows = AsyncMock(return_value=participants)
 
         with patch("routes.fare_split.db", mock_db):
@@ -203,7 +214,7 @@ class TestGetFareSplitForRide:
 
     def test_no_split_returns_has_split_false(self, client):
         mock_db = make_mock_db()
-        mock_db.fare_splits.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.get("/api/v1/fare-split/ride/ride_123")
@@ -214,7 +225,7 @@ class TestGetFareSplitForRide:
     def test_existing_split_returned(self, client):
         participants = [{"id": "p1", "phone": "+9876543210", "share_amount": 15.0, "status": "pending"}]
         mock_db = make_mock_db()
-        mock_db.fare_splits.find_one = AsyncMock(return_value=SAMPLE_SPLIT)
+        mock_db.find_one = AsyncMock(return_value=SAMPLE_SPLIT)
         mock_db.get_rows = AsyncMock(return_value=participants)
 
         with patch("routes.fare_split.db", mock_db):
@@ -233,7 +244,8 @@ class TestRespondToSplit:
     def test_accept_invitation(self, client):
         pending_participant = {**SAMPLE_PARTICIPANT, "user_id": "user_123", "status": "pending"}
         mock_db = make_mock_db()
-        mock_db.fare_split_participants.find_one = AsyncMock(return_value=pending_participant)
+        # Route only calls find_one("fare_split_participants") for accept action
+        mock_db.find_one = AsyncMock(return_value=pending_participant)
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post(
@@ -248,8 +260,11 @@ class TestRespondToSplit:
         pending_participant = {**SAMPLE_PARTICIPANT, "user_id": "user_123", "status": "pending"}
         remaining = [{"id": "p2", "user_id": "user_789", "status": "pending", "share_amount": 15.0}]
         mock_db = make_mock_db()
-        mock_db.fare_split_participants.find_one = AsyncMock(return_value=pending_participant)
-        mock_db.fare_splits.find_one = AsyncMock(return_value=SAMPLE_SPLIT)
+        # Route: find_one("fare_split_participants") → pending, then find_one("fare_splits") → split
+        mock_db.find_one = _find_one_dispatch(
+            fare_split_participants=pending_participant,
+            fare_splits=SAMPLE_SPLIT,
+        )
         mock_db.get_rows = AsyncMock(return_value=[pending_participant, *remaining])
 
         with patch("routes.fare_split.db", mock_db):
@@ -263,7 +278,7 @@ class TestRespondToSplit:
 
     def test_participant_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.fare_split_participants.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post(
@@ -276,7 +291,7 @@ class TestRespondToSplit:
     def test_unauthorized_respond_returns_403(self, client):
         other_participant = {**SAMPLE_PARTICIPANT, "user_id": "other_user"}
         mock_db = make_mock_db()
-        mock_db.fare_split_participants.find_one = AsyncMock(return_value=other_participant)
+        mock_db.find_one = AsyncMock(return_value=other_participant)
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post(
@@ -289,7 +304,7 @@ class TestRespondToSplit:
     def test_already_responded_returns_400(self, client):
         already_accepted = {**SAMPLE_PARTICIPANT, "user_id": "user_123", "status": "accepted"}
         mock_db = make_mock_db()
-        mock_db.fare_split_participants.find_one = AsyncMock(return_value=already_accepted)
+        mock_db.find_one = AsyncMock(return_value=already_accepted)
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post(
@@ -309,9 +324,14 @@ class TestPaySplitShare:
         split = SAMPLE_SPLIT
         remaining = [participant]
         mock_db = make_mock_db()
-        mock_db.fare_split_participants.find_one = AsyncMock(return_value=participant)
-        mock_db.wallets.find_one = AsyncMock(return_value=wallet)
-        mock_db.fare_splits.find_one = AsyncMock(return_value=split)
+        # Route: find_one("fare_split_participants") → participant,
+        #        find_one("wallets") → wallet (via routes.wallet.get_or_create_wallet),
+        #        find_one("fare_splits") → split
+        mock_db.find_one = _find_one_dispatch(
+            fare_split_participants=participant,
+            wallets=wallet,
+            fare_splits=split,
+        )
         mock_db.get_rows = AsyncMock(return_value=remaining)
 
         # pay_split_share imports get_or_create_wallet from routes.wallet,
@@ -331,8 +351,10 @@ class TestPaySplitShare:
         empty_wallet = {"id": "wallet_1", "user_id": "user_123", "balance": 1.0, "is_active": True}
         participant = {**SAMPLE_PARTICIPANT, "user_id": "user_123"}
         mock_db = make_mock_db()
-        mock_db.fare_split_participants.find_one = AsyncMock(return_value=participant)
-        mock_db.wallets.find_one = AsyncMock(return_value=empty_wallet)
+        mock_db.find_one = _find_one_dispatch(
+            fare_split_participants=participant,
+            wallets=empty_wallet,
+        )
 
         with patch("routes.fare_split.db", mock_db), patch("routes.wallet.db", mock_db):
             resp = client.post(
@@ -346,7 +368,7 @@ class TestPaySplitShare:
     def test_must_accept_before_paying(self, client):
         pending_participant = {**SAMPLE_PARTICIPANT, "user_id": "user_123", "status": "pending"}
         mock_db = make_mock_db()
-        mock_db.fare_split_participants.find_one = AsyncMock(return_value=pending_participant)
+        mock_db.find_one = AsyncMock(return_value=pending_participant)
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post(
@@ -363,7 +385,7 @@ class TestCancelFareSplit:
 
     def test_requester_can_cancel(self, client):
         mock_db = make_mock_db()
-        mock_db.fare_splits.find_one = AsyncMock(return_value=SAMPLE_SPLIT)
+        mock_db.find_one = AsyncMock(return_value=SAMPLE_SPLIT)
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post("/api/v1/fare-split/split_1/cancel")
@@ -373,7 +395,7 @@ class TestCancelFareSplit:
 
     def test_split_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.fare_splits.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post("/api/v1/fare-split/bad_split/cancel")
@@ -383,7 +405,7 @@ class TestCancelFareSplit:
     def test_non_requester_cannot_cancel(self, client):
         other_split = {**SAMPLE_SPLIT, "requester_id": "other_user"}
         mock_db = make_mock_db()
-        mock_db.fare_splits.find_one = AsyncMock(return_value=other_split)
+        mock_db.find_one = AsyncMock(return_value=other_split)
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post("/api/v1/fare-split/split_1/cancel")
@@ -393,7 +415,7 @@ class TestCancelFareSplit:
     def test_completed_split_cannot_be_cancelled(self, client):
         completed_split = {**SAMPLE_SPLIT, "status": "completed"}
         mock_db = make_mock_db()
-        mock_db.fare_splits.find_one = AsyncMock(return_value=completed_split)
+        mock_db.find_one = AsyncMock(return_value=completed_split)
 
         with patch("routes.fare_split.db", mock_db):
             resp = client.post("/api/v1/fare-split/split_1/cancel")

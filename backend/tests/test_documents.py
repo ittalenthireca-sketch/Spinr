@@ -439,13 +439,17 @@ class TestDocumentRegressions:
 
         Previously the endpoint raised HTTPException(404) during onboarding,
         which crashed the Documents screen in the driver app.
+
+        documents.py uses the flat db_supabase interface:
+          await db_supabase.get_rows("drivers", {"user_id": ...}, limit=1)
+        Patch target: documents.db_supabase
         """
-        mock_db = MagicMock()
-        mock_db.drivers.find_one = AsyncMock(return_value=None)  # no driver profile
+        mock_dbs = MagicMock()
+        mock_dbs.get_rows = AsyncMock(return_value=[])  # no driver profile
 
         mock_user = {"id": "user_999", "role": "driver", "is_driver": False}
 
-        with patch("documents.db", mock_db):
+        with patch("documents.db_supabase", mock_dbs):
             from documents import get_driver_documents
 
             result = await get_driver_documents(current_user=mock_user)

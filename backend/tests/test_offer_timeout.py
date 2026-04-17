@@ -1,8 +1,15 @@
 """
 Tests for _offer_timeout_handler — the backend-enforced offer TTL.
+
+routes/rides.py uses the flat db_supabase interface:
+  await db.find_one("rides", {...})
+  await db.update_one("drivers", {"id": ...}, {...})
+  await db.update_one("rides", {"id": ...}, {...})
+
+All mocks use the flat interface (no collection attributes).
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,22 +35,26 @@ class TestOfferTimeoutHandler:
             patch("backend.routes.rides.manager") as mock_manager,  # noqa: F841
             patch("backend.routes.rides.match_driver_to_ride", new_callable=AsyncMock) as mock_redispatch,
         ):
-            mock_db.rides.find_one = AsyncMock(return_value=ride_still_assigned)
-            mock_db.rides.update_one = AsyncMock()
-            mock_db.drivers.update_one = AsyncMock()
+            mock_db.find_one = AsyncMock(return_value=ride_still_assigned)
+            mock_db.update_one = AsyncMock()
             mock_manager.send_personal_message = AsyncMock()
 
             from backend.routes.rides import _offer_timeout_handler
 
             await _offer_timeout_handler("ride_1", "driver_1", rider_id="user_rider_1", timeout_seconds=30)
 
-            # Driver released
-            mock_db.drivers.update_one.assert_called_once()
-            driver_update_args = mock_db.drivers.update_one.call_args
-            assert driver_update_args[0][0] == {"id": "driver_1"}
+            # update_one called twice: once for drivers (release), once for rides (reset)
+            assert mock_db.update_one.call_count == 2
+            calls = mock_db.update_one.call_args_list
 
-            # Ride reset to searching
-            mock_db.rides.update_one.assert_called_once()
+            # First call releases the driver
+            driver_call = calls[0]
+            assert driver_call[0][0] == "drivers"
+            assert driver_call[0][1] == {"id": "driver_1"}
+
+            # Second call resets the ride to searching
+            rides_call = calls[1]
+            assert rides_call[0][0] == "rides"
 
             # Rider notified
             mock_manager.send_personal_message.assert_called_once()
@@ -68,16 +79,14 @@ class TestOfferTimeoutHandler:
             patch("backend.routes.rides.manager") as mock_manager,  # noqa: F841
             patch("backend.routes.rides.match_driver_to_ride", new_callable=AsyncMock) as mock_redispatch,
         ):
-            mock_db.rides.find_one = AsyncMock(return_value=progressed_ride)
-            mock_db.rides.update_one = AsyncMock()
-            mock_db.drivers.update_one = AsyncMock()
+            mock_db.find_one = AsyncMock(return_value=progressed_ride)
+            mock_db.update_one = AsyncMock()
 
             from backend.routes.rides import _offer_timeout_handler
 
             await _offer_timeout_handler("ride_1", "driver_1", rider_id="user_rider_1")
 
-            mock_db.rides.update_one.assert_not_called()
-            mock_db.drivers.update_one.assert_not_called()
+            mock_db.update_one.assert_not_called()
             mock_redispatch.assert_not_called()
 
     @pytest.mark.asyncio
@@ -94,15 +103,14 @@ class TestOfferTimeoutHandler:
             patch("backend.routes.rides.db") as mock_db,
             patch("backend.routes.rides.match_driver_to_ride", new_callable=AsyncMock) as mock_redispatch,
         ):
-            mock_db.rides.find_one = AsyncMock(return_value=different_driver_ride)
-            mock_db.rides.update_one = AsyncMock()
-            mock_db.drivers.update_one = AsyncMock()
+            mock_db.find_one = AsyncMock(return_value=different_driver_ride)
+            mock_db.update_one = AsyncMock()
 
             from backend.routes.rides import _offer_timeout_handler
 
             await _offer_timeout_handler("ride_1", "driver_1", rider_id="user_rider_1")
 
-            mock_db.rides.update_one.assert_not_called()
+            mock_db.update_one.assert_not_called()
             mock_redispatch.assert_not_called()
 
     @pytest.mark.asyncio
@@ -113,12 +121,12 @@ class TestOfferTimeoutHandler:
             patch("backend.routes.rides.db") as mock_db,
             patch("backend.routes.rides.match_driver_to_ride", new_callable=AsyncMock) as mock_redispatch,
         ):
-            mock_db.rides.find_one = AsyncMock(return_value=None)
-            mock_db.rides.update_one = AsyncMock()
+            mock_db.find_one = AsyncMock(return_value=None)
+            mock_db.update_one = AsyncMock()
 
             from backend.routes.rides import _offer_timeout_handler
 
             await _offer_timeout_handler("ride_1", "driver_1", rider_id="user_rider_1")
 
-            mock_db.rides.update_one.assert_not_called()
+            mock_db.update_one.assert_not_called()
             mock_redispatch.assert_not_called()

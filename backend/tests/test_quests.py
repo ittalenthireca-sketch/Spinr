@@ -65,15 +65,20 @@ SAMPLE_PROGRESS = {
 
 
 def make_mock_db():
+    """Build a mock matching the flat db_supabase interface used by routes/quests.py."""
     mock = MagicMock()
+    mock.find_one = AsyncMock(return_value=None)
+    mock.insert_one = AsyncMock(return_value=None)
+    mock.update_one = AsyncMock(return_value=None)
     mock.get_rows = AsyncMock(return_value=[])
-    for col in ("drivers", "quests", "quest_progress", "wallets", "wallet_transactions", "users"):
-        col_mock = MagicMock()
-        col_mock.find_one = AsyncMock(return_value=None)
-        col_mock.insert_one = AsyncMock(return_value=None)
-        col_mock.update_one = AsyncMock(return_value=None)
-        setattr(mock, col, col_mock)
     return mock
+
+
+def _find_one_dispatch(**table_returns):
+    """Return an AsyncMock that dispatches find_one calls by table name."""
+    def _dispatch(table, *args, **kwargs):
+        return table_returns.get(table)
+    return AsyncMock(side_effect=_dispatch)
 
 
 @pytest.fixture
@@ -95,7 +100,7 @@ class TestGetAvailableQuests:
 
     def test_driver_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None → driver not found
 
         with patch("routes.quests.db", mock_db):
             resp = client.get("/api/v1/quests")
@@ -105,7 +110,7 @@ class TestGetAvailableQuests:
 
     def test_returns_active_quests_for_driver(self, client):
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
+        mock_db.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
         mock_db.get_rows = AsyncMock(side_effect=[[SAMPLE_QUEST], []])
 
         with patch("routes.quests.db", mock_db):
@@ -119,7 +124,7 @@ class TestGetAvailableQuests:
     def test_expired_quests_excluded(self, client):
         expired_quest = {**SAMPLE_QUEST, "end_date": _PAST}
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
+        mock_db.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
         mock_db.get_rows = AsyncMock(side_effect=[[expired_quest], []])
 
         with patch("routes.quests.db", mock_db):
@@ -143,9 +148,12 @@ class TestJoinQuest:
 
     def test_join_quest_success(self, client):
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
-        mock_db.quests.find_one = AsyncMock(return_value=SAMPLE_QUEST)
-        mock_db.quest_progress.find_one = AsyncMock(return_value=None)
+        # Route: find_one("drivers"), find_one("quests"), find_one("quest_progress") → None
+        mock_db.find_one = _find_one_dispatch(
+            drivers=SAMPLE_DRIVER,
+            quests=SAMPLE_QUEST,
+            quest_progress=None,
+        )
 
         with patch("routes.quests.db", mock_db):
             resp = client.post("/api/v1/quests/quest_1/join")
@@ -158,7 +166,7 @@ class TestJoinQuest:
 
     def test_driver_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None → driver not found
 
         with patch("routes.quests.db", mock_db):
             resp = client.post("/api/v1/quests/quest_1/join")
@@ -167,8 +175,8 @@ class TestJoinQuest:
 
     def test_quest_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
-        mock_db.quests.find_one = AsyncMock(return_value=None)
+        # Route: find_one("drivers") → SAMPLE_DRIVER, find_one("quests") → None
+        mock_db.find_one = _find_one_dispatch(drivers=SAMPLE_DRIVER)
 
         with patch("routes.quests.db", mock_db):
             resp = client.post("/api/v1/quests/bad_quest/join")
@@ -177,9 +185,11 @@ class TestJoinQuest:
 
     def test_already_joined_returns_400(self, client):
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
-        mock_db.quests.find_one = AsyncMock(return_value=SAMPLE_QUEST)
-        mock_db.quest_progress.find_one = AsyncMock(return_value=SAMPLE_PROGRESS)
+        mock_db.find_one = _find_one_dispatch(
+            drivers=SAMPLE_DRIVER,
+            quests=SAMPLE_QUEST,
+            quest_progress=SAMPLE_PROGRESS,
+        )
 
         with patch("routes.quests.db", mock_db):
             resp = client.post("/api/v1/quests/quest_1/join")
@@ -190,9 +200,10 @@ class TestJoinQuest:
     def test_inactive_quest_returns_400(self, client):
         inactive_quest = {**SAMPLE_QUEST, "is_active": False}
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
-        mock_db.quests.find_one = AsyncMock(return_value=inactive_quest)
-        mock_db.quest_progress.find_one = AsyncMock(return_value=None)
+        mock_db.find_one = _find_one_dispatch(
+            drivers=SAMPLE_DRIVER,
+            quests=inactive_quest,
+        )
 
         with patch("routes.quests.db", mock_db):
             resp = client.post("/api/v1/quests/quest_1/join")
@@ -205,7 +216,7 @@ class TestGetMyQuests:
 
     def test_driver_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None
 
         with patch("routes.quests.db", mock_db):
             resp = client.get("/api/v1/quests/my-quests")
@@ -214,9 +225,12 @@ class TestGetMyQuests:
 
     def test_returns_joined_quests_with_progress(self, client):
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
+        # Route: find_one("drivers"), get_rows("quest_progress"), find_one("quests") per row
+        mock_db.find_one = _find_one_dispatch(
+            drivers=SAMPLE_DRIVER,
+            quests=SAMPLE_QUEST,
+        )
         mock_db.get_rows = AsyncMock(return_value=[SAMPLE_PROGRESS])
-        mock_db.quests.find_one = AsyncMock(return_value=SAMPLE_QUEST)
 
         with patch("routes.quests.db", mock_db):
             resp = client.get("/api/v1/quests/my-quests")
@@ -229,7 +243,7 @@ class TestGetMyQuests:
 
     def test_empty_quest_list(self, client):
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
+        mock_db.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
         mock_db.get_rows = AsyncMock(return_value=[])
 
         with patch("routes.quests.db", mock_db):
@@ -245,10 +259,14 @@ class TestClaimQuestReward:
     def test_claim_completed_quest_reward(self, client):
         wallet = {"id": "wallet_1", "user_id": "user_123", "balance": 0.0, "is_active": True}
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
-        mock_db.quest_progress.find_one = AsyncMock(return_value=SAMPLE_PROGRESS)
-        mock_db.quests.find_one = AsyncMock(return_value=SAMPLE_QUEST)
-        mock_db.wallets.find_one = AsyncMock(return_value=wallet)
+        # Route: find_one("drivers"), find_one("quest_progress"), find_one("quests"),
+        #        find_one("wallets") via routes.wallet.get_or_create_wallet
+        mock_db.find_one = _find_one_dispatch(
+            drivers=SAMPLE_DRIVER,
+            quest_progress=SAMPLE_PROGRESS,
+            quests=SAMPLE_QUEST,
+            wallets=wallet,
+        )
 
         # claim_quest_reward imports get_or_create_wallet from routes.wallet,
         # so both modules' db bindings need to be mocked.
@@ -262,8 +280,8 @@ class TestClaimQuestReward:
 
     def test_progress_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
-        mock_db.quest_progress.find_one = AsyncMock(return_value=None)
+        # Route: find_one("drivers") → SAMPLE_DRIVER, find_one("quest_progress") → None → 404
+        mock_db.find_one = _find_one_dispatch(drivers=SAMPLE_DRIVER)
 
         with patch("routes.quests.db", mock_db):
             resp = client.post("/api/v1/quests/progress/bad_progress/claim")
@@ -273,8 +291,10 @@ class TestClaimQuestReward:
     def test_not_completed_returns_400(self, client):
         in_progress = {**SAMPLE_PROGRESS, "status": "active", "current_value": 5}
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
-        mock_db.quest_progress.find_one = AsyncMock(return_value=in_progress)
+        mock_db.find_one = _find_one_dispatch(
+            drivers=SAMPLE_DRIVER,
+            quest_progress=in_progress,
+        )
 
         with patch("routes.quests.db", mock_db):
             resp = client.post("/api/v1/quests/progress/progress_1/claim")
@@ -285,8 +305,10 @@ class TestClaimQuestReward:
     def test_unauthorized_claim_returns_403(self, client):
         other_driver_progress = {**SAMPLE_PROGRESS, "driver_id": "other_driver"}
         mock_db = make_mock_db()
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
-        mock_db.quest_progress.find_one = AsyncMock(return_value=other_driver_progress)
+        mock_db.find_one = _find_one_dispatch(
+            drivers=SAMPLE_DRIVER,
+            quest_progress=other_driver_progress,
+        )
 
         with patch("routes.quests.db", mock_db):
             resp = client.post("/api/v1/quests/progress/progress_1/claim")
@@ -359,7 +381,7 @@ class TestAdminUpdateQuest:
 
     def test_update_quest_title(self, client):
         mock_db = make_mock_db()
-        mock_db.quests.find_one = AsyncMock(return_value=SAMPLE_QUEST)
+        mock_db.find_one = AsyncMock(return_value=SAMPLE_QUEST)
 
         with patch("routes.quests.db", mock_db):
             resp = client.patch(
@@ -372,7 +394,7 @@ class TestAdminUpdateQuest:
 
     def test_quest_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.quests.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None
 
         with patch("routes.quests.db", mock_db):
             resp = client.patch(
@@ -387,11 +409,15 @@ class TestAdminGetParticipants:
     """GET /api/v1/quests/admin/{quest_id}/participants"""
 
     def test_returns_participants_list(self, client):
+        user_data = {"id": "user_123", "first_name": "Test", "last_name": "Driver"}
         mock_db = make_mock_db()
-        mock_db.quests.find_one = AsyncMock(return_value=SAMPLE_QUEST)
+        # Route: find_one("quests"), get_rows("quest_progress"), find_one("drivers"), find_one("users")
+        mock_db.find_one = _find_one_dispatch(
+            quests=SAMPLE_QUEST,
+            drivers=SAMPLE_DRIVER,
+            users=user_data,
+        )
         mock_db.get_rows = AsyncMock(return_value=[SAMPLE_PROGRESS])
-        mock_db.drivers.find_one = AsyncMock(return_value=SAMPLE_DRIVER)
-        mock_db.users.find_one = AsyncMock(return_value={"id": "user_123", "first_name": "Test", "last_name": "Driver"})
 
         with patch("routes.quests.db", mock_db):
             resp = client.get("/api/v1/quests/admin/quest_1/participants")
@@ -404,7 +430,7 @@ class TestAdminGetParticipants:
 
     def test_quest_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.quests.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None → quest not found
 
         with patch("routes.quests.db", mock_db):
             resp = client.get("/api/v1/quests/admin/bad_quest/participants")

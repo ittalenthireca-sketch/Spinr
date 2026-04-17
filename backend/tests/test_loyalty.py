@@ -36,15 +36,20 @@ SAMPLE_RIDE = {
 
 
 def make_mock_db():
+    """Build a mock matching the flat db_supabase interface used by routes/loyalty.py."""
     mock = MagicMock()
+    mock.find_one = AsyncMock(return_value=None)
+    mock.insert_one = AsyncMock(return_value=None)
+    mock.update_one = AsyncMock(return_value=None)
     mock.get_rows = AsyncMock(return_value=[])
-    for col in ("loyalty_accounts", "loyalty_transactions", "rides", "wallets", "wallet_transactions"):
-        col_mock = MagicMock()
-        col_mock.find_one = AsyncMock(return_value=None)
-        col_mock.insert_one = AsyncMock(return_value=None)
-        col_mock.update_one = AsyncMock(return_value=None)
-        setattr(mock, col, col_mock)
     return mock
+
+
+def _find_one_dispatch(**table_returns):
+    """Return an AsyncMock that dispatches find_one calls by table name."""
+    def _dispatch(table, *args, **kwargs):
+        return table_returns.get(table)
+    return AsyncMock(side_effect=_dispatch)
 
 
 @pytest.fixture
@@ -66,8 +71,7 @@ class TestGetLoyaltyStatus:
     def test_new_user_gets_bronze_account(self, client):
         """First-time call auto-creates a bronze account."""
         mock_db = make_mock_db()
-        # find_one returns None → auto-create path
-        mock_db.loyalty_accounts.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None → auto-create path
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.get("/api/v1/loyalty")
@@ -83,7 +87,7 @@ class TestGetLoyaltyStatus:
     def test_existing_silver_account(self, client):
         """Existing account data is returned as-is."""
         mock_db = make_mock_db()
-        mock_db.loyalty_accounts.find_one = AsyncMock(return_value=SAMPLE_ACCOUNT)
+        mock_db.find_one = AsyncMock(return_value=SAMPLE_ACCOUNT)
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.get("/api/v1/loyalty")
@@ -110,7 +114,7 @@ class TestGetLoyaltyHistory:
 
     def test_empty_history(self, client):
         mock_db = make_mock_db()
-        mock_db.loyalty_accounts.find_one = AsyncMock(return_value=SAMPLE_ACCOUNT)
+        # Route calls get_rows("loyalty_transactions", ...) — no find_one needed
         mock_db.get_rows = AsyncMock(return_value=[])
 
         with patch("routes.loyalty.db", mock_db):
@@ -125,7 +129,6 @@ class TestGetLoyaltyHistory:
             {"id": "t2", "points": -100, "type": "redeemed", "created_at": "2026-01-01T10:00:00"},
         ]
         mock_db = make_mock_db()
-        mock_db.loyalty_accounts.find_one = AsyncMock(return_value=SAMPLE_ACCOUNT)
         mock_db.get_rows = AsyncMock(return_value=txns)
 
         with patch("routes.loyalty.db", mock_db):
@@ -136,11 +139,9 @@ class TestGetLoyaltyHistory:
 
     def test_limit_validation(self, client):
         mock_db = make_mock_db()
-        mock_db.loyalty_accounts.find_one = AsyncMock(return_value=SAMPLE_ACCOUNT)
-        mock_db.get_rows = AsyncMock(return_value=[])
 
         with patch("routes.loyalty.db", mock_db):
-            # limit=0 is below ge=1
+            # limit=0 is below ge=1 — FastAPI rejects before hitting db
             resp = client.get("/api/v1/loyalty/history?limit=0")
         assert resp.status_code == 422
 
@@ -150,9 +151,12 @@ class TestEarnPoints:
 
     def test_earn_points_for_completed_ride(self, client):
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=SAMPLE_RIDE)
-        mock_db.loyalty_transactions.find_one = AsyncMock(return_value=None)
-        mock_db.loyalty_accounts.find_one = AsyncMock(return_value=SAMPLE_ACCOUNT)
+        # Route: find_one("rides"), find_one("loyalty_transactions") → None, find_one("loyalty_accounts")
+        mock_db.find_one = _find_one_dispatch(
+            rides=SAMPLE_RIDE,
+            loyalty_transactions=None,
+            loyalty_accounts=SAMPLE_ACCOUNT,
+        )
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.post("/api/v1/loyalty/earn?ride_id=ride_123")
@@ -166,9 +170,11 @@ class TestEarnPoints:
     def test_earn_applies_silver_multiplier(self, client):
         """Silver tier (1.25×) earns bonus points."""
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=SAMPLE_RIDE)  # $20 fare
-        mock_db.loyalty_transactions.find_one = AsyncMock(return_value=None)
-        mock_db.loyalty_accounts.find_one = AsyncMock(return_value=SAMPLE_ACCOUNT)
+        mock_db.find_one = _find_one_dispatch(
+            rides=SAMPLE_RIDE,  # $20 fare
+            loyalty_transactions=None,
+            loyalty_accounts=SAMPLE_ACCOUNT,
+        )
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.post("/api/v1/loyalty/earn?ride_id=ride_123")
@@ -181,7 +187,7 @@ class TestEarnPoints:
 
     def test_ride_not_found_returns_404(self, client):
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=None)
+        # Default find_one returns None → ride not found
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.post("/api/v1/loyalty/earn?ride_id=bad_ride")
@@ -191,7 +197,7 @@ class TestEarnPoints:
     def test_ride_not_completed_returns_400(self, client):
         pending_ride = {**SAMPLE_RIDE, "status": "in_progress"}
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=pending_ride)
+        mock_db.find_one = AsyncMock(return_value=pending_ride)
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.post("/api/v1/loyalty/earn?ride_id=ride_123")
@@ -200,9 +206,13 @@ class TestEarnPoints:
         assert "not completed" in resp.json()["detail"].lower()
 
     def test_already_awarded_returns_idempotent(self, client):
+        existing_txn = {"id": "txn_existing", "type": "ride_earned"}
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=SAMPLE_RIDE)
-        mock_db.loyalty_transactions.find_one = AsyncMock(return_value={"id": "txn_existing", "type": "ride_earned"})
+        # Route: find_one("rides") → ride, find_one("loyalty_transactions") → existing → already awarded
+        mock_db.find_one = _find_one_dispatch(
+            rides=SAMPLE_RIDE,
+            loyalty_transactions=existing_txn,
+        )
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.post("/api/v1/loyalty/earn?ride_id=ride_123")
@@ -213,7 +223,7 @@ class TestEarnPoints:
     def test_unauthorized_ride_returns_403(self, client):
         other_user_ride = {**SAMPLE_RIDE, "rider_id": "other_user"}
         mock_db = make_mock_db()
-        mock_db.rides.find_one = AsyncMock(return_value=other_user_ride)
+        mock_db.find_one = AsyncMock(return_value=other_user_ride)
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.post("/api/v1/loyalty/earn?ride_id=ride_123")
@@ -227,9 +237,9 @@ class TestRedeemPoints:
     def test_redeem_points_for_wallet_credit(self, client):
         rich_account = {**SAMPLE_ACCOUNT, "points": 500}
         mock_db = make_mock_db()
-        mock_db.loyalty_accounts.find_one = AsyncMock(return_value=rich_account)
-        sample_wallet = {"id": "wallet_1", "user_id": "user_123", "balance": 10.0, "is_active": True}
-        mock_db.wallets.find_one = AsyncMock(return_value=sample_wallet)
+        # Route: find_one("loyalty_accounts") → rich_account.
+        # Wallet credit is in a try/except, so only loyalty_accounts matters for assertions.
+        mock_db.find_one = AsyncMock(return_value=rich_account)
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.post("/api/v1/loyalty/redeem", json={"points": 100})
@@ -242,7 +252,7 @@ class TestRedeemPoints:
 
     def test_below_minimum_redemption_returns_400(self, client):
         mock_db = make_mock_db()
-        mock_db.loyalty_accounts.find_one = AsyncMock(return_value=SAMPLE_ACCOUNT)
+        # Minimum check (< 100 pts) happens before any db call
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.post("/api/v1/loyalty/redeem", json={"points": 50})
@@ -253,7 +263,7 @@ class TestRedeemPoints:
     def test_insufficient_points_returns_400(self, client):
         low_balance_account = {**SAMPLE_ACCOUNT, "points": 50}
         mock_db = make_mock_db()
-        mock_db.loyalty_accounts.find_one = AsyncMock(return_value=low_balance_account)
+        mock_db.find_one = AsyncMock(return_value=low_balance_account)
 
         with patch("routes.loyalty.db", mock_db):
             resp = client.post("/api/v1/loyalty/redeem", json={"points": 200})
