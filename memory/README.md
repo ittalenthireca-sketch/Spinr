@@ -30,13 +30,20 @@ Project-level narrative memory is scattered across root-level reports:
 - `code_review_report_*.json` snapshots
 - `docs/audit/` production-readiness audits
 
-## Suggested layout when populated
+## Active records
+
+- [`HARDCODED_VALUES_REGISTRY.md`](./HARDCODED_VALUES_REGISTRY.md) —
+  catalog of hard-coded values, secrets, keys, URLs, identities, and
+  business constants across every module. Kept until testing finishes;
+  then walk §8 top-to-bottom for remediation.
+
+## Suggested layout when populated further
 
 ```
 memory/
   decisions/       # ADR-style records
   patterns/        # recurring code patterns + anti-patterns
-  debt/            # tracked technical debt items
+  debt/            # tracked technical debt items (HARDCODED_VALUES_REGISTRY lives here today)
   sessions/        # compressed session summaries
   index.json       # searchable manifest
   README.md
