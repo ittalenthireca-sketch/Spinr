@@ -29,26 +29,6 @@ os.environ.setdefault("ADMIN_EMAIL", "admin@spinr.ca")
 os.environ.setdefault("ENV", "test")
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Auto-skip integration-marked tests when Supabase is not reachable.
-
-    CI injects SUPABASE_URL as an empty string when the secret is not set,
-    which os.environ.setdefault() cannot override.  Rather than letting tests
-    fail with a cryptic AttributeError, surface a clear skip reason.
-    """
-    supabase_url = os.environ.get("SUPABASE_URL", "")
-    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
-    if supabase_url and supabase_key:
-        return  # real credentials present — let tests run
-
-    skip_marker = pytest.mark.skip(
-        reason="Supabase not configured (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set)"
-    )
-    for item in items:
-        if item.get_closest_marker("integration"):
-            item.add_marker(skip_marker)
-
-
 @pytest.fixture(scope="session")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """Create an instance of the default event loop for each test session."""
@@ -360,19 +340,34 @@ _STALE_TEST_CLASSES: frozenset[str] = frozenset(
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Auto-skip collected items belonging to known-stale test classes.
+    """Auto-skip collected items.
 
-    Matching is by substring on nodeid (e.g.
-    `tests/test_rides.py::TestRideCreation::test_foo`) so that renaming a
-    test method still keeps the skip applied until the class is removed
-    from `_STALE_TEST_CLASSES`.
+    1. ``integration``-marked tests when Supabase credentials are absent.
+       CI injects SUPABASE_URL as an empty string when the secret is not set,
+       which os.environ.setdefault() cannot override — this catches that case.
 
-    Set ``SPINR_RUN_STALE=1`` in the environment to disable the skip for
-    local triage runs while repairing classes — never used in CI.
+    2. Known-stale test classes that pre-date the Supabase migration.
+       Set ``SPINR_RUN_STALE=1`` to re-enable them locally for triage.
+
+    Matching for (2) is by substring on nodeid so that renaming a test method
+    still keeps the skip applied until the class is removed from
+    ``_STALE_TEST_CLASSES``.
     """
+    # --- integration gate ---------------------------------------------------
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not (supabase_url and supabase_key):
+        no_supabase = pytest.mark.skip(
+            reason="Supabase not configured (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY absent or empty)"
+        )
+        for item in items:
+            if item.get_closest_marker("integration"):
+                item.add_marker(no_supabase)
+
+    # --- stale-class gate ---------------------------------------------------
     if os.environ.get("SPINR_RUN_STALE") == "1":
         return
-    skip_marker = pytest.mark.skip(reason="Stale — pre-Supabase API shape. Rewrite tracked in P1 test-suite repair.")
+    stale_skip = pytest.mark.skip(reason="Stale — pre-Supabase API shape. Rewrite tracked in P1 test-suite repair.")
     for item in items:
         if any(stale in item.nodeid for stale in _STALE_TEST_CLASSES):
-            item.add_marker(skip_marker)
+            item.add_marker(stale_skip)
