@@ -275,7 +275,7 @@ export default function MonitoringPage() {
 
   // Filter active rides list by service area
   const visibleRides = useMemo(() => {
-    // eslint-disable-next-line react-compiler/react-compiler -- ref.current is intentional; counts dep triggers recompute on each poll cycle
+    // eslint-disable-next-line react-compiler/react-compiler, react-hooks/refs -- ref.current is intentional; counts dep triggers recompute on each poll cycle
     const rides = Array.from(ridesMapRef.current.values());
     return rides.filter((r) => {
       if (filters.serviceAreaId) {
