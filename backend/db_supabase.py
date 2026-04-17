@@ -1487,7 +1487,10 @@ async def delete_expired_ride_idempotency_keys(older_than_hours: int = 24) -> in
     except Exception as e:  # noqa: BLE001
         logger.warning(f"delete_expired_ride_idempotency_keys failed: {e}")
         return 0
+
+
 # ── Corporate Accounts (B2B v1) ──────────────────────────────────────
+
 
 async def list_corporate_accounts_filtered(
     *,
@@ -1498,6 +1501,7 @@ async def list_corporate_accounts_filtered(
     limit: int,
 ) -> List[Dict[str, Any]]:
     """List corporate accounts with optional status / size-tier / name-search filters."""
+
     def _fn():
         q = supabase.table("corporate_accounts").select("*")
         if status:
@@ -1512,18 +1516,15 @@ async def list_corporate_accounts_filtered(
             q = q.or_(f"name.ilike.%{safe}%,legal_name.ilike.%{safe}%")
         q = q.order("created_at", desc=True).range(skip, skip + limit - 1)
         return _rows_from_res(q.execute())
+
     return await run_sync(_fn)
 
 
 async def update_corporate_account_status(company_id: str, status: str) -> Optional[Dict[str, Any]]:
     def _fn():
-        res = (
-            supabase.table("corporate_accounts")
-            .update({"status": status})
-            .eq("id", company_id)
-            .execute()
-        )
+        res = supabase.table("corporate_accounts").update({"status": status}).eq("id", company_id).execute()
         return _single_row_from_res(res)
+
     return await run_sync(_fn)
 
 
@@ -1549,13 +1550,9 @@ async def record_kyb_decision(
         patch["kyb_review_note"] = note  # column added in a follow-up migration if desired
 
     def _fn():
-        res = (
-            supabase.table("corporate_accounts")
-            .update(patch)
-            .eq("id", company_id)
-            .execute()
-        )
+        res = supabase.table("corporate_accounts").update(patch).eq("id", company_id).execute()
         return _single_row_from_res(res)
+
     return await run_sync(_fn)
 
 
@@ -1564,6 +1561,7 @@ async def get_corporate_members_for_user(user_id: str) -> List[Dict[str, Any]]:
 
     Hot path: called on every work-profile check.
     """
+
     def _fn():
         res = (
             supabase.table("corporate_members")
@@ -1573,6 +1571,7 @@ async def get_corporate_members_for_user(user_id: str) -> List[Dict[str, Any]]:
             .execute()
         )
         return _rows_from_res(res)
+
     return await run_sync(_fn)
 
 
@@ -1583,9 +1582,7 @@ _KYB_CONTENT_EXT = {
 }
 
 
-async def create_kyb_upload_url(
-    *, company_id: str, content_type: str, ttl_seconds: int = 3600
-) -> Dict[str, Any]:
+async def create_kyb_upload_url(*, company_id: str, content_type: str, ttl_seconds: int = 3600) -> Dict[str, Any]:
     """Return a short-lived signed upload URL for a KYB document.
 
     The bucket 'kyb-documents' is private; the caller uploads with the

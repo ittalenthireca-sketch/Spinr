@@ -130,9 +130,7 @@ async def kyb_upload_url(
 
     from db_supabase import create_kyb_upload_url
 
-    return await create_kyb_upload_url(
-        company_id=normalized_id, content_type=body.content_type
-    )
+    return await create_kyb_upload_url(company_id=normalized_id, content_type=body.content_type)
 
 
 @router.post("/{company_id}/kyb-review", response_model=CorporateAccountDetailResponse)

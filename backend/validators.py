@@ -549,13 +549,24 @@ def pydantic_coordinates_validator(v: Union[float, int, str]) -> float:
 # ============================================================================
 
 _BN_FORMAT = re.compile(r"^\d{9}(?:R[CMPRTZ]\d{4})?$")
-_CA_TAX_REGIONS = frozenset({
-    "ON", "QC", "BC", "AB", "SK", "MB",
-    "NS", "NB", "NL", "PE", "YT", "NT", "NU",
-})
-_DOMAIN_RE = re.compile(
-    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$"
+_CA_TAX_REGIONS = frozenset(
+    {
+        "ON",
+        "QC",
+        "BC",
+        "AB",
+        "SK",
+        "MB",
+        "NS",
+        "NB",
+        "NL",
+        "PE",
+        "YT",
+        "NT",
+        "NU",
+    }
 )
+_DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 
 def validate_cra_business_number(bn: str) -> str:
