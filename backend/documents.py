@@ -31,7 +31,7 @@ def _is_valid_uuid(value: str) -> bool:
 # --- File Upload Security ---
 ALLOWED_MIME_TYPES = {
     "image/jpeg",
-    "image/jpg",   # alias — some devices/pickers send this
+    "image/jpg",  # alias — some devices/pickers send this
     "image/png",
     "image/gif",
     "image/webp",

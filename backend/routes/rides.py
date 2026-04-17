@@ -110,9 +110,7 @@ async def match_driver_to_ride(ride_id: str, *, ride: Optional[dict] = None):
     app_settings = await get_app_settings()
 
     # Algorithm + radius + rating floor (area overrides app settings).
-    algorithm, min_rating, search_radius = await dispatch.resolve_matching_config(
-        ride, app_settings=app_settings
-    )
+    algorithm, min_rating, search_radius = await dispatch.resolve_matching_config(ride, app_settings=app_settings)
 
     logger.info(
         f"[DISPATCH] match start ride_id={ride_id} "
@@ -497,9 +495,7 @@ async def estimate_ride(request: RideEstimateRequest, current_user: dict = Depen
 
 @api_router.post("")
 @ride_request_limit
-async def create_ride(
-    request: Request, body: CreateRideRequest, current_user: dict = Depends(get_current_user)
-):
+async def create_ride(request: Request, body: CreateRideRequest, current_user: dict = Depends(get_current_user)):
     # SlowAPI's @ride_request_limit needs a parameter literally named
     # ``request`` that is a starlette Request; otherwise it raises
     # "parameter `request` must be an instance of starlette.requests.Request"
@@ -552,9 +548,7 @@ async def create_ride(
         vehicle_types=vehicle_types,
     )
 
-    fare_info = next(
-        (f for f in fares if f["vehicle_type"]["id"] == body.vehicle_type_id), fares[0] if fares else None
-    )
+    fare_info = next((f for f in fares if f["vehicle_type"]["id"] == body.vehicle_type_id), fares[0] if fares else None)
 
     if not fare_info:
         raise HTTPException(status_code=400, detail="Invalid vehicle type")
