@@ -85,3 +85,5 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed step-by-step instructions.
 ## Notes
 
 *   Ensure Supabase RPC functions (`find_nearby_drivers`, `update_driver_location`, etc.) are created in your database. See `backend/FINAL_SCHEMA.sql` (if available) or migration files.
+
+Historical reports are at `docs/reports/2026-Q1/`.
