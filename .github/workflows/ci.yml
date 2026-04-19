@@ -108,6 +108,7 @@ jobs:
           file: ./backend/coverage.xml
           flags: backend
           name: backend-coverage
+          fail_ci_if_error: false
 
   # Frontend (Rider App) Tests
   frontend-test:
@@ -148,6 +149,7 @@ jobs:
           file: ./frontend/coverage/coverage-final.json
           flags: frontend
           name: frontend-coverage
+          fail_ci_if_error: false
 
   # Driver App Tests
   driver-app-test:
@@ -184,6 +186,7 @@ jobs:
           file: ./driver-app/coverage/coverage-final.json
           flags: driver-app
           name: driver-app-coverage
+          fail_ci_if_error: false
 
   # Rider App Tests (dedicated app — rider-app/)
   # Note: frontend/ is the legacy combined app, still tested by frontend-test.
@@ -222,6 +225,7 @@ jobs:
           file: ./rider-app/coverage/coverage-final.json
           flags: rider-app
           name: rider-app-coverage
+          fail_ci_if_error: false
 
   # Admin Dashboard Tests
   admin-test:
