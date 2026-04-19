@@ -25,9 +25,11 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_pubsub():
     """Return a fresh _WSPubSub with no Redis attached."""
     from utils.ws_pubsub import _WSPubSub
+
     return _WSPubSub()
 
 
@@ -41,24 +43,29 @@ def _mock_manager() -> MagicMock:
 # resolve_ws_redis_url
 # ---------------------------------------------------------------------------
 
+
 def test_resolve_ws_redis_url_prefers_ws_url():
     from utils.ws_pubsub import resolve_ws_redis_url
+
     assert resolve_ws_redis_url("redis://ws-host/0", "redis://rate-host/0") == "redis://ws-host/0"
 
 
 def test_resolve_ws_redis_url_falls_back_to_rate_limit():
     from utils.ws_pubsub import resolve_ws_redis_url
+
     assert resolve_ws_redis_url("", "redis://rate-host/0") == "redis://rate-host/0"
 
 
 def test_resolve_ws_redis_url_returns_empty_when_neither_set():
     from utils.ws_pubsub import resolve_ws_redis_url
+
     assert resolve_ws_redis_url("", "") == ""
 
 
 # ---------------------------------------------------------------------------
 # Single-machine / no-Redis mode
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_start_no_url_returns_false():
@@ -79,6 +86,7 @@ async def test_publish_when_inactive_returns_false():
 # Redis import / connection errors
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_start_missing_redis_package_returns_false():
     ps = _make_pubsub()
@@ -97,8 +105,7 @@ async def test_start_unreachable_redis_returns_false():
     mock_redis_module = MagicMock()
     mock_redis_module.from_url.return_value = mock_client
 
-    with patch.dict("sys.modules", {"redis": MagicMock(asyncio=mock_redis_module),
-                                    "redis.asyncio": mock_redis_module}):
+    with patch.dict("sys.modules", {"redis": MagicMock(asyncio=mock_redis_module), "redis.asyncio": mock_redis_module}):
         result = await ps.start(_mock_manager(), "redis://localhost:6379/0")
 
     assert result is False
@@ -108,6 +115,7 @@ async def test_start_unreachable_redis_returns_false():
 # ---------------------------------------------------------------------------
 # Active pub/sub — publish
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_publish_serialises_and_calls_redis():
@@ -193,6 +201,7 @@ async def test_publish_redis_error_returns_false():
 # ---------------------------------------------------------------------------
 # Consumer loop behaviour
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_consumer_delivers_valid_message_to_manager():
@@ -286,6 +295,7 @@ async def test_consumer_survives_bad_json():
 # ---------------------------------------------------------------------------
 # stop()
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_stop_cancels_task_and_closes_redis():
