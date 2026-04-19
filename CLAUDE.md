@@ -47,18 +47,18 @@ Never log coordinates, phone numbers, or full names. The pre-commit hook blocks 
 - Frontend changes: start the dev server (see `.claude/launch.json`) and click through the flow. Type-checks and tests verify code correctness, not feature correctness.
 - Payment / ride-state changes: walk through `reports/validation/` runbooks where they exist before reporting done.
 
-## Graphify knowledge graph
-
-This project has a graphify knowledge graph at graphify-out/.
-
-Rules:
-- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
-- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
-- After modifying code files in this session, run `python3 -c "from graphify.watch import _rebuild_code; from pathlib import Path; _rebuild_code(Path('.'))"` to keep the graph current
-
 ## Never do (project-specific)
 
 - Never modify CI workflows (`.github/workflows/ci.yml`, `deploy-backend.yml`, `eas-build.yml`, `test-env.yml`, `apply-supabase-schema.yml`) — denied in settings.
 - Never write `.env*`, `*.pem`, `*.key`, or `.claude/settings.local.json`.
 - Never commit `graphify-out/` (it's generated; in `.gitignore`).
 - Never bypass the pre-commit hook with `--no-verify` without explicit user instruction per-commit.
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)
