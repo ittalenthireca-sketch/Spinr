@@ -34,6 +34,9 @@ status_check.txt
 status_full.txt
 .claude/worktrees/
 .claude/settings.local.json
+.claude/metrics/
+.claude/audit/
+CLAUDE.local.md
 
 # Graphify knowledge graph output (generated, not source)
 graphify-out/
